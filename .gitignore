@@ -1,0 +1,12 @@
+node_modules/
+src/data/
+data/
+config/
+*.log
+*.db
+*.sqlite
+*.sqlite3
+*.backup-before-sanitize
+.env
+.env.*
+scripts/.tmp/
