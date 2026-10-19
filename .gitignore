@@ -10,3 +10,9 @@ config/
 .env
 .env.*
 scripts/.tmp/
+
+# Playwright / Zhipu 浏览器登录数据（含会话与 Cookie，不上传）
+playwright-user-data/
+zhipu-user-data/
+src/playwright-user-data/
+src/services/playwright-user-data/

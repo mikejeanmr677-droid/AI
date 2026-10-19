@@ -80,10 +80,11 @@
                 <option value="dashscope">dashscope（阿里云百炼）</option>
                 <option value="volcengine">volcengine（火山引擎）</option>
                 <option value="moonshot">moonshot（月之暗面/Kimi）</option>
+                <option value="minimax">minimax（MiniMax）</option>
                 <option value="generic">generic（通用）</option>
               </select>
             </div>
-            <div class="field" data-field="key"><label id="f-key-label">API Key</label><input id="f-key" placeholder="sk-..."></div>
+            <div class="field" data-field="key"><label id="f-key-label">API Key <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a></label><input id="f-key" placeholder="sk-"></div>
             <div class="field" data-field="key-secret"><label id="f-key-secret-label">Secret Key（火山 SK，可选）</label><input id="f-key-secret" placeholder="火山引擎填 Secret Access Key"></div>
             <div class="field" data-field="balance-type"><label>余额类型</label>
               <select id="f-balance-type">
@@ -190,23 +191,26 @@
     const QUICK_TEMPLATES = [
       { provider:'deepseek', name:'DeepSeek', currency:'CNY', threshold:200,
         url:'https://api.deepseek.com/user/balance', jsonPath:'balance_infos[0].total_balance',
-        hint:'只需填 <b>API Key</b>（在 DeepSeek 开放平台「API keys」页创建，sk-开头）。余额为人民币账户总额。' },
+        hint:'只需填 <b>API Key</b>（在 <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">DeepSeek 开放平台「API keys」页</a>创建，sk-开头）。余额为人民币账户总额。' },
       { provider:'volcengine', name:'火山引擎', currency:'CNY', threshold:200,
-        hint:'需填两项：<b>API Key</b> 填 Access Key ID（AK），<b>Secret Key</b> 填 Secret Access Key（SK），在控制台「API 访问密钥」页生成；需有费用中心只读权限。查询的是主账户可用余额。' },
+        hint:'需填两项：<b>API Key</b> 填 <a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">Access Key ID（AK）</a>，<b>Secret Key</b> 填 <a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">Secret Access Key（SK）</a>，在控制台「API 访问密钥」页生成；需有费用中心只读权限。查询的是主账户可用余额。' },
       { provider:'moonshot', name:'月之暗面', currency:'CNY', threshold:200,
         url:'https://api.moonshot.cn/v1/users/me/balance', jsonPath:'data.available_balance',
-        hint:'只需填 <b>API Key</b>（月之暗面平台「API Key 管理」页创建）。余额为人民币。' },
+        hint:'只需填 <b>API Key</b>（在 <a href="https://platform.moonshot.cn/console/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">月之暗面平台「API Key 管理」页</a>创建）。余额为人民币。' },
       { provider:'minimax', name:'MiniMax', currency:'CNY', threshold:200,
-        url:'https://www.minimaxi.com/v1/token_plan/remains', jsonPath:'model_remains',
-        hint:'只需填 <b>API Key</b>。MiniMax 返回的是 token 额度余量（非人民币），阈值请按 token 量级设置。' },
+        url:'https://www.minimaxi.com/v1/token_plan/remains', jsonPath:'current_interval_usage_count',
+        hint:'<b>Token Plan API Key</b>（在 <a href="https://platform.minimax.cn/console/access?tab=api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">MiniMax 平台「Token Plan 密钥管理」页</a>创建）：返回当前5小时滚动窗口内剩余的Token请求次数（非人民币）。<br><b>普通开放平台API Key</b>：请手动访问 <a href="https://platform.minimax.cn/console/user-center/balance" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">MiniMax 账户中心</a> 查看余额。' },
       { provider:'zhipu', name:'智谱AI', currency:'CNY', threshold:200,
-        hint:'API Key 填模型调用 Key；<b>Secret Key</b> 填控制台登录 Token（JWT）——登录 open.bigmodel.cn 后从浏览器 DevTools 的 Authorization 头复制。<b>Token 会过期</b>，失效后需重新复制更新，或运行 node scripts/zhipu-token-refresh.mjs --token "新token"。' },
+        hint:'只需填 <b>API Key</b>（在 <a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">智谱开放平台「API Keys」页</a>创建，格式为 xxxxx.yyyyy）。查询的是智谱AI账户可用余额，单位为人民币。' },
       { provider:'dashscope', name:'阿里云百炼', currency:'CNY', threshold:200,
-        hint:'需填两项：<b>API Key</b> 填 AccessKey ID，<b>Secret Key</b> 填 AccessKey Secret（阿里云 RAM 访问控制台创建；需有 BSS 费用查询权限）。查询的是阿里云账户可用余额。' },
+        hint:'需填两项：<b>API Key</b> 填 <a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">AccessKey ID</a>，<b>Secret Key</b> 填 <a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">AccessKey Secret</a>（阿里云 RAM 访问控制台创建；需有 BSS 费用查询权限）。查询的是阿里云账户可用余额。' },
       { provider:'tencent', name:'腾讯云（混元）', currency:'CNY', threshold:200,
-        hint:'需填两项：<b>API Key</b> 填 SecretId，<b>Secret Key</b> 填 SecretKey（腾讯云「访问管理-API密钥管理」页创建）。查询的是腾讯云账户可用余额，单位为人民币。' },
+        hint:'需填两项：<b>API Key</b> 填 <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">SecretId</a>，<b>Secret Key</b> 填 <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">SecretKey</a>（腾讯云「访问管理-API密钥管理」页创建）。查询的是腾讯云账户可用余额，单位为人民币。' },
       { provider:'openai', name:'OpenAI', currency:'USD', threshold:10,
-        hint:'需填 <b>Admin Key</b>（组织管理员在 platform.openai.com「API Keys」创建，sk-admin 开头）。余额 = 预付总额 - 本月消耗（美元）。国内访问需代理：启动服务前设置环境变量 NODE_USE_ENV_PROXY=1 和 HTTPS_PROXY。' },
+        hint:'需填 <b>Admin Key</b>（组织管理员在 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">platform.openai.com「API Keys」</a>创建，sk-admin 开头）。余额 = 预付总额 - 本月消耗（美元）。国内访问需代理：启动服务前设置环境变量 NODE_USE_ENV_PROXY=1 和 HTTPS_PROXY。' },
+      { provider:'mimo', name:'小米多模态（MiMo）', currency:'CNY', threshold:10,
+        url:'https://mimo.mi.com/api/v1/balance', jsonPath:'data.balance',
+        hint:'只需填 <b>API Key</b>（在 <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">小米多模态平台「API Key 管理」页</a>创建）。' },
     ];
 
     function renderQuickAdd() {
@@ -226,14 +230,17 @@
     // 快速添加：预填常量，用户只填密钥；按平台隐藏不适用的字段
     // 内置专用查询器（签名类）不需要 URL/JSON path/余额类型；单 key 类不需要 Secret Key
     const FIELD_VISIBILITY = {
-      deepseek:  { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key' },
-      moonshot:  { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key' },
-      minimax:   { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key' },
-      zhipu:     { hide:['balance-url','json-path'], keyLabel:'API Key（模型调用）', secretLabel:'控制台 Token（JWT）' },
-      volcengine:{ hide:['balance-url','json-path','balance-type'], keyLabel:'Access Key ID（AK）', secretLabel:'Secret Access Key（SK）' },
-      dashscope: { hide:['balance-url','json-path','balance-type'], keyLabel:'AccessKey ID', secretLabel:'AccessKey Secret' },
-      tencent:   { hide:['balance-url','json-path','balance-type'], keyLabel:'SecretId', secretLabel:'SecretKey' },
-      openai:    { hide:['key-secret','balance-url','json-path','balance-type'], keyLabel:'Admin Key（sk-admin 开头）' },
+      deepseek:  { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      moonshot:  { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://platform.moonshot.cn/console/api-keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      minimax:   { hide:['key-secret','balance-url','json-path'], keyLabel:'Token Plan API Key <a href="https://platform.minimax.cn/console/access?tab=api-keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      mimo:      { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      mimo:      { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      zhipu:     { hide:['balance-url','json-path'], keyLabel:'API Key（模型调用）<a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'控制台 Token（JWT）<a href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      volcengine:{ hide:['balance-url','json-path','balance-type'], keyLabel:'Access Key ID（AK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'Secret Access Key（SK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      dashscope: { hide:['balance-url','json-path','balance-type'], keyLabel:'AccessKey ID<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'AccessKey Secret<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      tencent:   { hide:['balance-url','json-path','balance-type'], keyLabel:'SecretId<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'SecretKey<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      openai:    { hide:['key-secret','balance-url','json-path','balance-type'], keyLabel:'Admin Key（sk-admin 开头）<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      zhipu:     { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
     };
     function setFieldVisible(name, visible) {
       const el = document.querySelector(`#form-grid [data-field="${name}"]`);
@@ -244,8 +251,8 @@
       for (const name of ['key','key-secret','balance-type','balance-url','json-path']) {
         setFieldVisible(name, cfg ? !cfg.hide.includes(name) : true);
       }
-      document.querySelector('#f-key-label').textContent = cfg?.keyLabel || 'API Key';
-      document.querySelector('#f-key-secret-label').textContent = cfg?.secretLabel || 'Secret Key（火山 SK，可选）';
+      document.querySelector('#f-key-label').innerHTML = cfg?.keyLabel || 'API Key';
+      document.querySelector('#f-key-secret-label').innerHTML = cfg?.secretLabel || 'Secret Key（火山 SK，可选）';
     }
 
     function showQuickForm(t) {

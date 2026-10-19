@@ -3,6 +3,7 @@
 
 import db from '../db/index.js';
 import { createHash, createHmac } from 'node:crypto';
+import { scrapeMiniMaxBalance } from './scraper_minimax.mjs';
 
 // 火山引擎 OpenAPI 签名（HMAC-SHA256，类似 AWS SigV4）
 function sha256hex(s) { return createHash('sha256').update(s).digest('hex'); }
@@ -277,6 +278,110 @@ const providers = {
     return { balance: parseFloat(balance), raw: data };
   },
 
+  // MiniMax：余额查询接口
+  minimax: async (platform) => {
+    if (!platform.api_key) throw new Error('MiniMax需要配置API Key');
+    // 区分Token Plan Key和普通开放平台API Key
+    if (platform.api_key.startsWith('sk-cp-')) {
+      // Token Plan Key：使用官方API接口查询
+      const url = platform.balance_api_url || 'https://www.minimaxi.com/v1/token_plan/remains';
+      const res = await fetch(url, {
+        headers: { Authorization: `Bearer ${platform.api_key}` },
+      });
+      if (!res.ok) throw new Error(`MiniMax余额查询失败: HTTP ${res.status}`);
+      const data = await res.json();
+      const balance = getByPath(data, platform.balance_json_path || 'current_interval_usage_count');
+      if (balance == null) throw new Error('未在返回中找到余额字段');
+      return { balance, raw: data, unit: '次请求（5小时滚动）' };
+    } else {
+      // 普通开放平台API Key：使用浏览器自动抓取余额
+      console.log('[MiniMax] 正在使用浏览器自动抓取余额...');
+      const balance = await scrapeMiniMaxBalance();
+      return { balance, raw: {}, unit: '元' };
+    }
+  },
+
+  // 小米多模态（MiMo）：余额查询接口
+  mimo: async (platform) => {
+    if (!platform.api_key) throw new Error('MiMo需要配置API Key');
+    const url = platform.balance_api_url || 'https://mimo.mi.com/api/v1/balance';
+    const res = await fetch(url, {
+      headers: { Authorization: `Bearer ${platform.api_key}` },
+    });
+    if (!res.ok) throw new Error(`MiMo余额查询失败: HTTP ${res.status}`);
+    const data = await res.json();
+    const balance = getByPath(data, platform.balance_json_path || 'data.balance');
+    if (balance == null) throw new Error('未在返回中找到余额字段');
+    return { balance, raw: data };
+  },
+
+  // 智谱AI：余额查询接口（只需 API Key）
+  zhipu: async (platform) => {
+    if (!platform.api_key) throw new Error('智谱AI需要配置API Key');
+    // 调用智谱AI账户余额查询API，只需 API Key 鉴权
+    const url = platform.balance_api_url || 'https://open.bigmodel.cn/api/usage';
+    const res = await fetch(url, {
+      headers: {
+        'Authorization': `Bearer ${platform.api_key}`,
+        'Content-Type': 'application/json',
+      },
+    });
+    if (!res.ok) throw new Error(`智谱AI余额查询失败: HTTP ${res.status}`);
+    const data = await res.json();
+    // 调试：打印原始返回
+    console.log('智谱API返回:', JSON.stringify(data, null, 2));
+    // 兼容多种返回字段：remaining / remaining_quota / balance / data.balance / data / 其他结构
+    const balance = getByPath(data, platform.balance_json_path || 'remaining')
+      ?? getByPath(data, 'remaining_quota')
+      ?? getByPath(data, 'balance')
+      ?? getByPath(data, 'data.balance')
+      ?? getByPath(data, 'data')
+      ?? (typeof data === 'object' && data ? Object.values(data)[0] : null);
+    if (balance == null) throw new Error('未在返回中找到余额字段');
+    return { balance, raw: data, unit: '元' };
+  },
+
+  // 小米MiMo：余额查询接口，支持api-key header和Authorization Bearer两种方式
+  mimo: async (platform) => {
+    if (!platform.api_key) throw new Error('小米MiMo需要配置API Key');
+    // 尝试几个可能的余额查询URL
+    const urls = [
+      platform.balance_api_url || 'https://api.xiaomimimo.com/v1/balance',
+      'https://api.xiaomimimo.com/v1/quota',
+      'https://api.xiaomimimo.com/v1/user/balance',
+      'https://mimo.mi.com/api/v1/balance',
+    ];
+    // 先试api-key header，再试Authorization Bearer
+    const headersOptions = [
+      { 'api-key': platform.api_key, 'Content-Type': 'application/json' },
+      { 'Authorization': `Bearer ${platform.api_key}`, 'Content-Type': 'application/json' },
+    ];
+    // 遍历所有组合
+    for (const url of urls) {
+      for (const headers of headersOptions) {
+        try {
+          const res = await fetch(url, { headers });
+          if (!res.ok) continue; // 这个组合不行，继续试下一个
+          const data = await res.json();
+          console.log('小米MiMo API返回:', JSON.stringify(data, null, 2));
+          // 先尝试用户指定的路径，再尝试常见路径
+          const balance = getByPath(data, platform.balance_json_path || 'data.balance')
+            ?? getByPath(data, 'balance')
+            ?? getByPath(data, 'remaining')
+            ?? getByPath(data, 'quota')
+            ?? getByPath(data, 'data.remaining')
+            ?? getByPath(data, 'data.quota');
+          if (balance != null) {
+            return { balance, raw: data, unit: '元' };
+          }
+        } catch (e) {
+          // 继续试下一个组合
+        }
+      }
+    }
+    throw new Error('小米MiMo余额查询失败，所有URL和认证方式都尝试过了');
+  },
+
   scrape: async (platform) => {
     // 抓取模式：预留，具体实现按平台补充
     throw new Error('抓取模式尚未针对该平台实现，请改用 api 或 manual');
@@ -304,19 +409,24 @@ export async function fetchBalance(platform) {
 }
 
 export async function refreshPlatformBalance(platformId) {
+  console.log(`[refresh] 开始刷新平台 id=${platformId}...`);
   const platform = db.prepare('SELECT * FROM platforms WHERE id = ?').get(platformId);
   if (!platform) throw new Error('平台不存在');
+  console.log(`[refresh] 平台信息: name=${platform.name}, provider=${platform.provider}, balance_type=${platform.balance_type}`);
   if (!platform.active) return null;
 
   try {
     const { balance, raw } = await fetchBalance(platform);
+    console.log(`[refresh] 获取余额成功: balance=${balance}`);
     if (balance != null) {
       db.prepare(
         'INSERT INTO balance_history (platform_id, balance, currency) VALUES (?, ?, ?)'
       ).run(platformId, balance, platform.currency);
+      console.log(`[refresh] 余额已保存到历史记录`);
     }
     return { ok: true, balance, platformId };
   } catch (err) {
+    console.error(`[refresh] 刷新失败:`, err);
     return { ok: false, error: err.message, platformId };
   }
 }
