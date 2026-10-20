@@ -4,10 +4,10 @@
 
 这是一个大模型 API 余额监控与自动充值管理平台。**不转发业务请求**，只负责：
 
-- 统一管理各大模型平台的面板信息（API Key、余额查询配置、阈值、充值金额）
-- 定时查询各平台余额，低于阈值时自动生成充值单
-- 邮件通知财务人员去网银打款
-- 财务标记已打款 → 系统跟踪到账 → 资金池扣减记账
+- 统一管理各大模型平台的面板信息（余额查询配置、阈值、充值金额）
+- 定时查询各平台余额，低于阈值时自动生成充值提醒
+- 页面红色预警横幅 + 桌面弹窗 + 手机推送（Server酱/Bark）提醒充值
+- 登记打款 → 系统跟踪到账 → 自动计入资金统计
 
 适用场景：公司同时使用多个大模型平台（OpenAI、DeepSeek、火山引擎、月之暗面、智谱、MiniMax、阿里云百炼、腾讯云混元等），需要统一监控余额和自动化充值流程。
 
@@ -19,8 +19,8 @@
 |---|---|---|
 | 运行时 | Node.js ≥ 20 | ES Module（`"type": "module"`） |
 | Web 框架 | Fastify 5 | 启动快、内置 JSON 序列化 |
-| 数据库 | sql.js（SQLite WASM） | 纯 JS 实现，无需原生编译，数据库文件在 `src/data/llm-manager.db` |
-| 邮件 | nodemailer | SMTP 发送充值通知邮件 |
+| 数据库 | sql.js（SQLite WASM） | 纯 JS 实现，无需原生编译，数据库文件在 `data/llm-manager.db` |
+| 浏览器抓取 | Playwright | 登录态（storageState）复用，无头抓取钱包页余额 |
 | 前端 | 原生 HTML/JS/CSS | 单文件 `public/index.html`，零构建零依赖 |
 
 依赖只有 4 个包：`fastify`、`@fastify/static`、`sql.js`、`nodemailer`。
@@ -33,10 +33,7 @@
 # 1. 安装依赖
 npm install
 
-# 2. 编辑配置（见下一节）
-# 打开 config.json，填入 SMTP 邮箱信息
-
-# 3. 启动服务
+# 2. 启动服务
 npm start
 
 # 开发模式（文件改动自动重启）
@@ -44,6 +41,8 @@ npm run dev
 ```
 
 启动后访问 **http://localhost:3000**，数据库会在首次启动时自动创建。
+
+给别人部署时的完整顺序：npm install → npm start → 添加平台（页面添加或 `node scripts/setup-wallet-platforms.mjs`）→ 浏览器抓取型平台跑一次 `node scripts/wallet-login.mjs` 登录生成登录态 → 正常使用（登录态注意事项见第五节）。
 
 ---
 
@@ -55,18 +54,13 @@ npm run dev
 {
   "port": 3000,
   "host": "0.0.0.0",
-  "email": {
-    "host": "smtp.qq.com",
-    "port": 465,
-    "secure": true,
-    "user": "发件邮箱@qq.com",
-    "pass": "SMTP授权码（不是邮箱密码）",
-    "from": "llm-manager@qq.com",
-    "to": "finance@company.com"
-  },
   "monitor": {
-    "intervalMs": 600000,
+    "intervalMs": 3600000,
     "defaultThreshold": 200
+  },
+  "notify": {
+    "serverchan": "",
+    "bark": ""
   }
 }
 ```
@@ -75,15 +69,12 @@ npm run dev
 |---|---|
 | `port` | 服务端口，默认 3000 |
 | `host` | 监听地址，`0.0.0.0` 允许外部访问 |
-| `email.host` | SMTP 服务器地址 |
-| `email.port` | SMTP 端口，SSL 用 465 |
-| `email.user` / `email.pass` | 发件邮箱账号 / SMTP 授权码 |
-| `email.from` | 发件人显示地址 |
-| `email.to` | 充值通知收件人（财务邮箱） |
-| `monitor.intervalMs` | 余额巡检间隔，默认 600000（10 分钟） |
-| `monitor.defaultThreshold` | 默认阈值，默认 200 |
+| `monitor.intervalMs` | 余额巡检间隔（毫秒），默认 3600000（1 小时） |
+| `monitor.defaultThreshold` | 默认低余额阈值，默认 200 |
+| `notify.serverchan` | Server酱 SendKey（微信推送），留空不推 |
+| `notify.bark` | Bark 推送 Key（iOS），留空不推 |
 
-**未配置 SMTP 时**：充值单照常生成，邮件通知会跳过并打印控制台警告。
+未配置推送时：低余额仍会在页面显示红色预警横幅 + 桌面弹窗，手机推送跳过。
 
 ---
 
@@ -112,10 +103,17 @@ npm run dev
 
 没有官方余额 API 或需登录控制台才能看余额的平台（腾讯云TokenHub、小米MiMo、Kimi、阿里云百炼、MiniMax、火山引擎）：
 - `balance_type=scrape`，`balance_api_url` 填钱包页面地址，`balance_json_path` 填提取规则（纯关键字如 `可用额度`，或 JSON `{"keyword":"可用额度","max":10000000}`）
-- 实现：`src/services/scraper_wallets.mjs`，用 playwright 打开钱包页，在页面文本中按「关键字 + 正则」提取余额
-- 登录态：首次运行 `node scripts/wallet-login.mjs` 在浏览器中手动登录一次（存入 `src/playwright-user-data`），之后定时巡检无头自动抓取
+- 实现：`src/services/scraper_wallets.mjs`，用 playwright 加载登录态打开钱包页，在页面文本中按「关键字 + 正则」提取余额
+- 登录态：首次运行 `node scripts/wallet-login.mjs` 在浏览器中手动登录一次（保存到 `src/wallet-states/storage_<平台>.json`），之后定时巡检无头自动抓取
 - 验证：`node scripts/wallet-check.mjs` 无头抓取全部 scrape 平台并打印结果
 - 初始化：`node scripts/setup-wallet-platforms.mjs` 把 6 个平台写入数据库（可重复执行）
+
+### 登录态注意事项（给他人部署必读）
+
+- **登录态会过期**：各平台有效期不同（几天到几周不等）。过期后巡检会抓取失败 / 读不到余额，重新跑一次 `node scripts/wallet-login.mjs`（或双击 重新登录.bat）登录即可，属正常维护
+- **登录态绑定环境**：换电脑、换 IP / 网络环境后可能失效，需要重新登录一次；同一台电脑上长期稳定
+- 登录态文件含 cookie，保存在 `src/wallet-states/`，已被 .gitignore 排除、**绝不上传 Git**
+- 别人 clone 项目后没有 node_modules 和数据库：先 `npm install`，再 `npm start`（数据库自动创建），再按本节流程配置平台 + 登录一次
 
 ### 手动录入（manual）
 
@@ -162,9 +160,9 @@ pending（待通知）→ notified（已通知）→ paid（已打款）→ cred
 1. **巡检触发**：定时器每 `intervalMs` 毫秒跑一次巡检
 2. **余额查询**：对所有 `active=1` 的平台逐一查余额
 3. **阈值判断**：余额 < 阈值 → 生成 `pending` 充值单
-4. **邮件通知**：自动发邮件给财务 → 状态变 `notified`
-5. **财务打款**：财务去网银对公汇款，在页面点「标记已打款」→ `paid`
-6. **到账跟踪**：下次巡检时检测余额是否上涨，上涨则自动 `credited` + 资金池扣减
+4. **提醒通知**：自动推送（页面横幅 / 桌面弹窗 / 手机推送，按配置）→ 状态变 `notified`
+5. **财务打款**：财务去网银打款，在页面点「登记打款」→ `paid`
+6. **到账跟踪**：下次巡检时检测余额是否上涨，上涨则自动 `credited` + 计入资金统计
 7. **手动确认**：也可在页面点「确认到账」直接跳过自动检测
 
 ### 充值金额规则
@@ -173,11 +171,11 @@ pending（待通知）→ notified（已通知）→ paid（已打款）→ cred
 - 若配置了 `target_amount`（补足目标），则充 `目标 - 当前余额` 的差额
 - 幂等：同一平台有未完成单子时不重复生成
 
-### 资金池账本
+### 资金统计（原资金池，已改为纯记账）
 
-- 公司预存一笔钱到资金池（页面「资金池」标签页 → 预存）
-- 每次充值到账后自动扣减
-- 所有进出有流水记录（`fund_transactions` 表）
+- 每笔充值确认到账后自动计入「累计充值总额」
+- 资金统计页：累计充值总额 + 月度充值明细（按平台汇总、扇形占比图、CSV 导出），用于评估各平台月消耗、规划下月充值
+- 所有到账有流水记录（`fund_transactions` 表，type=recharge_deduct）
 
 ---
 
@@ -193,13 +191,15 @@ pending（待通知）→ notified（已通知）→ paid（已打款）→ cred
 | POST | `/api/platforms/:id/refresh` | 刷新单个平台余额 |
 | POST | `/api/platforms/:id/balance` | 手动录入余额 `{balance: 数值}` |
 | GET | `/api/platforms/:id/history` | 余额历史 `?limit=50` |
-| GET | `/api/orders` | 充值单列表 |
-| POST | `/api/orders/:id/notify` | 发送充值通知邮件 |
-| POST | `/api/orders/:id/paid` | 标记已打款 |
+| GET | `/api/orders` | 充值提醒列表 |
+| POST | `/api/orders/:id/notify` | 发送充值通知（推送/弹窗） |
+| POST | `/api/orders/:id/paid` | 登记打款 |
+| POST | `/api/orders/:id/unmark-paid` | 撤销打款（改回已通知） |
 | POST | `/api/orders/:id/credit` | 检测到账（自动） |
 | POST | `/api/orders/:id/credit-force` | 手动确认到账 |
-| GET | `/api/fund` | 资金池余额 + 流水 |
-| POST | `/api/fund/deposit` | 预存资金 `{amount, note}` |
+| POST | `/api/orders/:id/note` | 修改用途备注 |
+| GET | `/api/fund` | 资金统计 + 流水 |
+| GET | `/api/fund/monthly?month=YYYY-MM` | 月度充值明细（各平台到账汇总） |
 | POST | `/api/monitor/run` | 立即执行一次巡检 |
 
 ---
@@ -210,23 +210,24 @@ pending（待通知）→ notified（已通知）→ paid（已打款）→ cred
 xkzoom-apiManager/
 ├── src/
 │   ├── server.js              # 入口：启动 Fastify、初始化数据库、启动监控
-│   ├── routes.js              # API 路由（平台 CRUD、充值单、资金池、巡检）
+│   ├── routes.js              # API 路由（平台 CRUD、充值提醒、资金统计、巡检）
 │   ├── db/
 │   │   └── index.js           # 数据库模块（sql.js 封装，兼容 better-sqlite3 接口）
 │   └── services/
 │       ├── balance.js         # 余额查询（8 个内置 provider + generic + manual）
 │       ├── recharge.js        # 充值自动化（生成单 → 通知 → 打款 → 到账 → 记账）
-│       ├── monitor.js         # 监控调度器（定时巡检循环）
-│       └── mailer.js          # 邮件通知（nodemailer SMTP）
+│       ├── monitor.js         # 监控调度器（定时巡检循环，平台并行抓取）
+│       ├── mailer.js          # 邮件模块（遗留，未配置 SMTP 时跳过）
+│       └── push.js            # 手机推送（Server酱 / Bark）
 ├── public/
-│   └── index.html             # 前端单页（平台管理、充值单、资金池三个标签页）
+│   └── index.html             # 前端单页（平台面板、充值提醒、资金统计三个标签页）
 ├── scripts/                   # 工具脚本（脱敏、各平台余额查询测试）
 │   ├── sanitize-db.mjs        # 数据库脱敏脚本（交付前跑）
 │   ├── tencent-check.mjs      # 腾讯云余额查询测试
 │   ├── zhipu-check.mjs       # 智谱余额查询测试
 │   ├── zhipu-token-refresh.mjs # 智谱 Token 更新
 │   └── ...
-├── config.json                # 配置文件（端口、SMTP、监控间隔）
+├── config.json                # 配置文件（端口、监控间隔、手机推送）
 ├── package.json               # 依赖与脚本
 └── .gitignore                 # Git 忽略规则
 ```
@@ -243,7 +244,7 @@ balance_history     余额历史（platform_id, balance, currency, checked_at）
 recharge_orders     充值单（platform_id, amount, currency, reason, status, 
                    notified_at, paid_at, credited_at）
 
-fund_pool           资金池（balance, updated_at）— 单行
+fund_pool           资金统计（累计充值，balance 单行；充值提醒到账时累加）
 
 fund_transactions   资金流水（type, amount, balance_after, ref_id, note, created_at）
 
@@ -254,7 +255,7 @@ settings            键值设置（预留）
 
 ## 十、安全注意事项
 
-1. **密钥存储在数据库中**（`src/data/llm-manager.db`），API 列表接口返回掩码 `••••••••`
+1. **密钥存储在数据库中**（`data/llm-manager.db`），API 列表接口返回掩码 `••••••••`
 2. **`.gitignore` 已配置**忽略数据库、config 目录、.env 文件
 3. **交付前脱敏**：运行 `node scripts/sanitize-db.mjs` 清空所有密钥
 4. **无身份认证**：当前版本没有登录/鉴权，部署时需：
@@ -271,7 +272,7 @@ settings            键值设置（预留）
 A: 先跑 `npm install` 安装依赖。
 
 **Q: 数据库在哪？**
-A: `src/data/llm-manager.db`，首次启动自动创建。删掉后重启会重新建空库。
+A: `data/llm-manager.db`，首次启动自动创建。删掉后重启会重新建空库（平台配置、充值记录会丢）。
 
 **Q: OpenAI 余额显示 0？**
 A: OpenAI 用「预付额 - 本月消耗」算余额。`balance_json_path` 字段填预付总额（美元）。确认 Admin Key 有效且配了出境代理。
@@ -282,8 +283,8 @@ A: 登录 open.bigmodel.cn → F12 打开 DevTools → Network → 随便点一�
 **Q: 火山引擎 / 阿里云 / 腾讯云查余额报错？**
 A: 确认 AK/SK 有费用中心（Billing）的读权限，不是模型调用权限。
 
-**Q: 邮件没发出来？**
-A: 检查 config.json 的 SMTP 配置。QQ 邮箱的 `pass` 是授权码不是密码。未配置时充值单照常生成，只是不发邮件。
+**Q: 手机没收到提醒？**
+A: 检查 config.json 的 `notify` 字段：`serverchan`（Server酱微信推送）和 `bark`（iOS）需填对应的 Key 并重启服务。未配置时低余额仍会在页面显示红色预警横幅 + 桌面弹窗。
 
 **Q: 如何修改巡检间隔？**
 A: 改 config.json 的 `monitor.intervalMs`，重启生效。
@@ -293,8 +294,7 @@ A: 改 config.json 的 `monitor.intervalMs`，重启生效。
 ## 十二、后续可扩展方向
 
 - 加用户登录鉴权（JWT / Session）
-- 余额趋势图表（Chart.js）
-- 钉钉/飞书/企业微信通知（除邮件外）
-- 智谱 Token 自动刷新（脚本定时登录获取）
+- 余额趋势图表（已有月度扇形图，可加折线趋势）
+- 钉钉/飞书/企业微信通知（当前已有 Server酱/Bark 手机推送）
 - 对公汇款回单 OCR 自动识别到账
 - 多用户 + 权限角色

@@ -142,7 +142,7 @@ import { fileURLToPath } from 'url';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-const USER_DATA_DIR = path.join(__dirname, '../playwright-user-data');
+const USER_DATA_DIR = path.join(__dirname, '../wallet-states');
 const CONFIG_PATH = path.join(__dirname, '../config.json');
 
 export async function scrapeMiniMaxBalance() {
