@@ -2,6 +2,7 @@
 import db from '../db/index.js';
 import { refreshPlatformBalance } from './balance.js';
 import { maybeCreateRechargeOrder, notifyOrder, tryCreditOrder } from './recharge.js';
+import { sendPhoneNotify } from './push.js';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,6 +14,42 @@ try {
 } catch {}
 
 const intervalMs = config.monitor?.intervalMs ?? 600000;
+
+// 读取/写入 settings 键值
+function setSetting(key, value) {
+  db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
+}
+function getSetting(key) {
+  const row = db.prepare('SELECT value FROM settings WHERE key = ?').get(key);
+  return row ? row.value : null;
+}
+
+// 登录态过期提醒：连续 N 次巡检失败才推，且同一平台至少间隔 6 小时
+async function maybeNotifyFailures(platforms, errors) {
+  const failedIds = new Set(errors.map((e) => e.platformId));
+  for (const p of platforms) {
+    const countKey = `fail_count_${p.id}`;
+    const pushKey = `fail_push_${p.id}`;
+    if (failedIds.has(p.id)) {
+      const count = (parseInt(getSetting(countKey) || '0', 10) || 0) + 1;
+      setSetting(countKey, count);
+      if (count >= 3) {
+        const lastPush = parseInt(getSetting(pushKey) || '0', 10) || 0;
+        if (Date.now() - lastPush >= 6 * 3600 * 1000) {
+          setSetting(pushKey, Date.now());
+          const err = errors.find((e) => e.platformId === p.id);
+          await sendPhoneNotify(
+            `⚠️ ${p.name} 余额抓取失败`,
+            `已连续 ${count} 次巡检失败，可能登录态过期或平台风控。\n错误：${err?.error || ''}\n请尽快重新登录：node scripts/wallet-login.mjs`
+          );
+          console.log(`[monitor] 已推送登录态过期提醒: ${p.name}`);
+        }
+      }
+    } else {
+      setSetting(countKey, 0);
+    }
+  }
+}
 
 // 单次巡检（平台按批并行刷新，最多 3 个同时抓，整体提速）
 export async function runMonitorCycle() {
@@ -47,6 +84,9 @@ export async function runMonitorCycle() {
     const cr = await tryCreditOrder(o.id);
     if (cr.ok) results.credited.push(o.id);
   }
+
+  // 5. 登录态过期自动提醒（连续失败 → 手机推送）
+  await maybeNotifyFailures(platforms, results.errors);
 
   return results;
 }

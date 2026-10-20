@@ -66,6 +66,7 @@
       <div class="card">
         <h2>大模型平台</h2>
         <div id="alert-bar" class="alert-bar hidden"></div>
+        <div id="monitor-result" class="hidden" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-top:12px;font-size:13px;color:#166534;"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;" id="quick-add-bar">
           <span style="font-size:13px; color:#6b7280;">⚡ 快速添加：</span>
           <button class="primary" onclick="showAddForm()">+ 添加平台</button>
@@ -374,7 +375,7 @@
           <td>${balanceBadge(p.latest_balance, p.threshold)} ${esc(p.currency)}</td>
           <td>${p.threshold}</td>
           <td>${p.recharge_amount}</td>
-          <td>${p.active ? '<span class="badge ok">启用</span>' : '<span class="badge err">停用</span>'}</td>
+          <td>${p.latest_error ? `<span class="badge err" title="${esc(p.latest_error)}">抓取失败</span>` : (p.active ? '<span class="badge ok">启用</span>' : '<span class="badge err">停用</span>')}</td>
           <td class="row-actions">
             <button onclick="refreshOne(${p.id})">刷新余额</button>
             <button onclick="inputBalance(${p.id})">录入余额</button>
@@ -615,8 +616,9 @@
       loadPlatforms(); loadOrders(); loadFund();
       if (monitorPollTimer) clearInterval(monitorPollTimer);
       monitorPollTimer = setInterval(() => { loadPlatforms(); loadOrders(); loadFund(); }, 4000);
+      let data = null;
       try {
-        await api('/api/monitor/run', { method:'POST' });
+        data = await api('/api/monitor/run', { method:'POST' });
       } catch (e) {
         alert('巡检失败：' + e.message);
       }
@@ -624,6 +626,30 @@
       loadPlatforms(); loadOrders(); loadFund();
       clearInterval(monitorPollTimer);
       monitorPollTimer = null;
+      showMonitorResult(data);
+    }
+
+    // 展示本次巡检结果（成功/失败平台/生成单）
+    function showMonitorResult(data) {
+      const box = document.querySelector('#monitor-result');
+      if (!box || !data) { box && box.classList.add('hidden'); return; }
+      const nameOf = (id) => { const p = platformsCache.find(x => x.id === id); return p ? p.name : `#${id}`; };
+      const errs = data.errors || [];
+      const okCount = (data.refreshed || []).length;
+      if (errs.length) {
+        box.style.background = '#fef2f2';
+        box.style.border = '1px solid #fecaca';
+        box.style.color = '#991b1b';
+        box.innerHTML = `本次巡检：成功 ${okCount} 个，失败 ${errs.length} 个（${errs.map(e => nameOf(e.platformId)).join('、')}）— 失败平台已标「抓取失败」，可点「刷新余额」重试；连续失败会自动手机提醒重新登录。`;
+        box.classList.remove('hidden');
+      } else {
+        box.style.background = '#f0fdf4';
+        box.style.border = '1px solid #bbf7d0';
+        box.style.color = '#166534';
+        box.innerHTML = `本次巡检完成：全部 ${okCount} 个平台刷新成功${(data.orders || []).length ? `，生成充值提醒 ${data.orders.length} 条` : ''}${(data.credited || []).length ? `，确认到账 ${data.credited.length} 笔` : ''}。`;
+        box.classList.remove('hidden');
+      }
+      setTimeout(() => box.classList.add('hidden'), 15000);
     }
     async function notifyOrder(id) { await api(`/api/orders/${id}/notify`, { method:'POST' }); loadOrders(); }
     async function markPaid(id) { await api(`/api/orders/${id}/paid`, { method:'POST' }); loadOrders(); }

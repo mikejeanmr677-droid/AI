@@ -104,6 +104,10 @@ export async function initSchema() {
     if (!names.includes('api_key_secret')) {
       db.run('ALTER TABLE platforms ADD COLUMN api_key_secret TEXT');
     }
+    // 迁移：最近一次刷新错误（抓取失败/登录态过期提示用）
+    if (!names.includes('latest_error')) {
+      db.run('ALTER TABLE platforms ADD COLUMN latest_error TEXT');
+    }
   } catch {}
 
   // 初始化资金池记录

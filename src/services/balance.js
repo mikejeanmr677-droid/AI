@@ -440,9 +440,13 @@ export async function refreshPlatformBalance(platformId) {
       ).run(platformId, balance, platform.currency);
       console.log(`[refresh] 余额已保存到历史记录`);
     }
+    // 刷新成功，清空上次错误标记
+    db.prepare('UPDATE platforms SET latest_error = NULL WHERE id = ?').run(platformId);
     return { ok: true, balance, platformId };
   } catch (err) {
     console.error(`[refresh] 刷新失败:`, err);
+    // 记录错误，前端标"抓取失败"，连续失败会触发登录态过期提醒
+    db.prepare('UPDATE platforms SET latest_error = ? WHERE id = ?').run(String(err.message).slice(0, 300), platformId);
     return { ok: false, error: err.message, platformId };
   }
 }
