@@ -115,16 +115,33 @@ export async function registerRoutes(fastify) {
     return o;
   });
 
+  // 撤销打款：误标记后改回已通知
+  fastify.post('/api/orders/:id/unmark-paid', async (req, reply) => {
+    const o = db.prepare("SELECT * FROM recharge_orders WHERE id = ? AND status = 'paid'").get(req.params.id);
+    if (!o) return reply.code(400).send({ error: '订单不存在或未处于已打款状态' });
+    db.prepare("UPDATE recharge_orders SET status = 'notified', paid_at = NULL WHERE id = ?").run(req.params.id);
+    return db.prepare('SELECT * FROM recharge_orders WHERE id = ?').get(req.params.id);
+  });
+
+  // 充值日记：填写/修改用途备注
+  fastify.post('/api/orders/:id/note', async (req, reply) => {
+    const { note } = req.body || {};
+    const o = db.prepare('SELECT * FROM recharge_orders WHERE id = ?').get(req.params.id);
+    if (!o) return reply.code(404).send({ error: '订单不存在' });
+    db.prepare('UPDATE recharge_orders SET note = ? WHERE id = ?').run(note || null, req.params.id);
+    return db.prepare('SELECT * FROM recharge_orders WHERE id = ?').get(req.params.id);
+  });
+
   fastify.post('/api/orders/:id/credit', async (req, reply) => {
     const r = await tryCreditOrder(req.params.id);
-    if (!r.ok) return reply.code(400).send(r);
+    if (!r.ok) return reply.code(400).send({ error: r.reason || r.error || '尚未检测到到账' });
     return r;
   });
 
   // 手动直接确认到账
   fastify.post('/api/orders/:id/credit-force', async (req, reply) => {
     const r = creditOrder(req.params.id);
-    if (!r.ok) return reply.code(400).send(r);
+    if (!r.ok) return reply.code(400).send({ error: r.reason || r.error || '无法确认到账' });
     return r;
   });
 
@@ -133,6 +150,21 @@ export async function registerRoutes(fastify) {
     const pool = getFundPool();
     const txs = db.prepare('SELECT * FROM fund_transactions ORDER BY id DESC LIMIT 100').all();
     return { pool, transactions: txs };
+  });
+
+  // 月度充值统计：某月各平台到账明细（status=credited 的记录）
+  fastify.get('/api/fund/monthly', async (req) => {
+    const now = new Date();
+    const defMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : defMonth;
+    const rows = db.prepare(`
+      SELECT o.id, p.name AS platform_name, o.amount, o.currency, o.note, o.credited_at
+      FROM recharge_orders o JOIN platforms p ON p.id = o.platform_id
+      WHERE o.status = 'credited' AND o.credited_at LIKE ?
+      ORDER BY o.credited_at DESC
+    `).all(month + '%');
+    const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+    return { month, rows, total };
   });
 
   fastify.post('/api/fund/deposit', async (req, reply) => {

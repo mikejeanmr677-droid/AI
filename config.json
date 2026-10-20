@@ -2,7 +2,11 @@
   "port": 3000,
   "host": "0.0.0.0",
   "monitor": {
-    "intervalMs": 600000,
+    "intervalMs": 3600000,
     "defaultThreshold": 200
+  },
+  "notify": {
+    "serverchan": "",
+    "bark": ""
   }
 }

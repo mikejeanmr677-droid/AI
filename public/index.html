@@ -28,6 +28,9 @@
     .badge.warn { background:#fffbeb; color:var(--amber); }
     .badge.err { background:#fef2f2; color:var(--red); }
     .badge.info { background:#eff6ff; color:var(--brand); }
+    @keyframes alertPulse { 0%,100% { background:#fef2f2; } 50% { background:#fee2e2; } }
+    .alert-bar { background:#fef2f2; border:1px solid #fecaca; border-radius:8px; padding:10px 14px; margin-top:12px; font-size:14px; color:#991b1b; line-height:1.8; animation: alertPulse 2s infinite; }
+    tr.low-balance td { background:#fef2f2 !important; }
     .grid { display:grid; grid-template-columns:1fr 1fr; gap:20px; }
     input, select { padding:8px 10px; border:1px solid var(--border); border-radius:6px; width:100%; }
     .field { margin-bottom:12px; }
@@ -48,27 +51,39 @@
 <body>
   <header>
     <h1>大模型 API 统一管理平台</h1>
-    <div id="fund-badge" class="muted">资金池：--</div>
+    <div id="fund-badge" class="muted">累计充值：--</div>
   </header>
 
   <div class="container">
     <div class="tabs">
       <div class="tab active" data-tab="platforms">平台面板</div>
-      <div class="tab" data-tab="orders">充值单</div>
-      <div class="tab" data-tab="fund">资金池</div>
+      <div class="tab" data-tab="orders">充值提醒</div>
+      <div class="tab" data-tab="fund">资金统计</div>
     </div>
 
     <!-- 平台面板 -->
     <section id="tab-platforms">
       <div class="card">
         <h2>大模型平台</h2>
+        <div id="alert-bar" class="alert-bar hidden"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;" id="quick-add-bar">
           <span style="font-size:13px; color:#6b7280;">⚡ 快速添加：</span>
           <button class="primary" onclick="showAddForm()">+ 添加平台</button>
         </div>
+        <div id="quick-add-groups" style="margin-top:10px;">
+          <div style="margin-bottom:10px;">
+            <div style="font-size:12px; color:#6b7280; margin-bottom:6px;">API 接口型（填 API Key 查余额）</div>
+            <div id="quick-add-api" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+          </div>
+          <div>
+            <div style="font-size:12px; color:#6b7280; margin-bottom:6px;">浏览器抓取型（无需 API Key，登录后自动抓取）</div>
+            <div id="quick-add-scrape" style="display:flex; gap:6px; flex-wrap:wrap;"></div>
+          </div>
+        </div>
         <div id="add-form" class="card hidden" style="margin-top:16px;">
           <h2 id="form-title">添加平台</h2>
           <div id="form-hint" class="hidden" style="background:#f0f7ff; border:1px solid #bfdbfe; border-radius:6px; padding:10px 14px; font-size:13px; color:#1e40af; margin-bottom:12px; line-height:1.7;"></div>
+          <div id="scrape-hint" class="hidden" style="background:#fef9c3; border:1px solid #fde68a; border-radius:6px; padding:10px 14px; font-size:13px; color:#854d0e; margin-bottom:12px; line-height:1.7;">🔑 浏览器抓取型无需 API Key。首次使用需先登录一次：双击项目目录的 <b>重新登录.bat</b>（或执行 <code>node scripts/wallet-login.mjs</code>），登录成功后保存平台，之后定时巡检会自动抓取余额。<br>⚠️ 余额查询 URL 请填写该平台的钱包余额页面网址（余额显示在哪一页就填哪一页），抓取关键词对应页面上余额旁边的文字。</div>
           <div class="grid" id="form-grid">
             <div class="field" data-field="name"><label>平台名称 *</label><input id="f-name" placeholder="如 OpenAI"></div>
             <div class="field" data-field="provider"><label>Provider</label>
@@ -87,10 +102,10 @@
             <div class="field" data-field="key"><label id="f-key-label">API Key <a href="https://platform.deepseek.com/api_keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a></label><input id="f-key" placeholder="sk-"></div>
             <div class="field" data-field="key-secret"><label id="f-key-secret-label">Secret Key（火山 SK，可选）</label><input id="f-key-secret" placeholder="火山引擎填 Secret Access Key"></div>
             <div class="field" data-field="balance-type"><label>余额类型</label>
-              <select id="f-balance-type">
-                <option value="api">api（官方接口）</option>
+              <select id="f-balance-type" onchange="onBalanceTypeChange()">
+                <option value="api">api（官方接口，填 API Key）</option>
+                <option value="scrape">scrape（浏览器抓取，无需 Key）</option>
                 <option value="manual">manual（手动录入）</option>
-                <option value="scrape">scrape（抓取）</option>
               </select>
             </div>
             <div class="field" data-field="balance-url"><label>余额查询 URL</label><input id="f-balance-url" placeholder="https://..."></div>
@@ -107,33 +122,46 @@
           <thead><tr><th>名称</th><th>Provider</th><th>余额</th><th>阈值</th><th>充值金额</th><th>状态</th><th>操作</th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="platform-pagination" style="display:flex;gap:10px;align-items:center;margin-top:12px;font-size:13px;color:var(--muted);"></div>
       </div>
     </section>
 
-    <!-- 充值单 -->
+    <!-- 充值提醒 -->
     <section id="tab-orders" class="hidden">
       <div class="card">
-        <h2>充值单</h2>
+        <h2>充值提醒</h2>
+        <div style="background:#f8fafc;border:1px solid var(--border);border-radius:8px;padding:12px 16px;font-size:13px;color:var(--muted);line-height:1.9;margin:12px 0;">
+          使用说明：系统每小时自动抓取各 AI 平台钱包余额，余额低于阈值（默认 200）时，自动生成充值提醒并发通知（邮件 / 桌面弹窗 / 手机推送）。<br>
+          操作流程：你实际充值成功后，在对应提醒上点「登记打款」——之后每次巡检会自动检测该平台余额是否上涨，确认到账后自动累计到「资金统计」并记账，无需逐个操作。<br>
+          按钮含义：「立即巡检」= 手动立刻执行一轮检查（不用等每小时）；「检测到账」= 手动单独验证某一单是否已到账；「撤销打款」= 误点登记后改回原状态；「备注」= 记录这笔用途。
+        </div>
         <button class="primary" onclick="runMonitor()">立即巡检</button>
         <table style="margin-top:16px;" id="order-table">
-          <thead><tr><th>单号</th><th>平台</th><th>金额</th><th>状态</th><th>原因</th><th>时间</th><th>操作</th></tr></thead>
+          <thead><tr><th>单号</th><th>平台</th><th>金额</th><th>状态</th><th>原因</th><th>用途</th><th>时间</th><th>操作</th></tr></thead>
           <tbody></tbody>
         </table>
+        <div id="order-pagination" style="display:flex;gap:10px;align-items:center;margin-top:12px;font-size:13px;color:var(--muted);"></div>
       </div>
     </section>
 
-    <!-- 资金池 -->
+    <!-- 资金统计 -->
     <section id="tab-fund" class="hidden">
       <div class="card">
-        <h2>公司资金池</h2>
+        <h2>资金统计</h2>
         <div class="stat" id="fund-balance">--</div>
-        <div class="field" style="margin-top:16px; max-width:320px;">
-          <label>预存金额</label>
-          <input id="deposit-amount" type="number" placeholder="金额">
+        <div class="muted" style="font-size:13px;margin-top:4px;">累计充值总额（元）——每笔充值确认到账后自动累加</div>
+      </div>
+      <div class="card">
+        <h2>月度充值明细</h2>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+          <input type="month" id="month-picker" onchange="loadMonthly()" style="width:auto;">
+          <button onclick="loadMonthly()">刷新</button>
+          <button class="primary" onclick="exportMonthly()">导出本月数据</button>
         </div>
-        <button class="primary" onclick="deposit()">预存</button>
-        <table style="margin-top:16px;" id="fund-table">
-          <thead><tr><th>类型</th><th>金额</th><th>结余</th><th>说明</th><th>时间</th></tr></thead>
+        <div style="margin:10px 0;font-size:14px;" id="month-total"></div>
+        <div id="month-chart" style="margin:10px 0;"></div>
+        <table style="margin-top:8px;" id="month-table">
+          <thead><tr><th>平台</th><th>金额</th><th>币种</th><th>用途</th><th>到账时间</th></tr></thead>
           <tbody></tbody>
         </table>
       </div>
@@ -169,6 +197,7 @@
       dashscope: '<svg class="picon" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#FF6A00"/><circle cx="12" cy="12" r="5.5" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M12 6.5c2.4 1.5 2.4 9.5 0 11" fill="none" stroke="#fff" stroke-width="1.5"/><path d="M6.5 12h11" stroke="#fff" stroke-width="1.5"/></svg>',
       tencent: '<svg class="picon" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#0052D9"/><path d="M12 5c-4 0-7 2.6-7 5.8 0 1.9 1.1 3.6 2.8 4.6-.1.8-.5 1.7-1.2 2.4 1.4-.2 2.6-.8 3.4-1.4 .6.1 1.3.2 2 .2 4 0 7-2.6 7-5.8S16 5 12 5z" fill="#fff"/></svg>',
       openai: '<svg class="picon" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#10A37F"/><path d="M12 6.2a3.2 3.2 0 0 1 2.9 1.8l-4.2 2.4a2.2 2.2 0 0 0 0 3.2l4.2 2.4A3.2 3.2 0 0 1 12 17.8a3.2 3.2 0 0 1-2.9-1.8l4.2-2.4a2.2 2.2 0 0 0 0-3.2L9.1 8A3.2 3.2 0 0 1 12 6.2z" fill="none" stroke="#fff" stroke-width="1.4"/><circle cx="12" cy="12" r="6.2" fill="none" stroke="#fff" stroke-width="1.4"/></svg>',
+      mimo: '<svg class="picon" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#FF6900"/><circle cx="12" cy="12" r="4.8" fill="none" stroke="#fff" stroke-width="1.8"/><path d="M12 7.2v9.6M7.2 12h9.6" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/></svg>',
       generic: '<svg class="picon" viewBox="0 0 24 24"><rect width="24" height="24" rx="5" fill="#9CA3AF"/><circle cx="12" cy="12" r="4.5" fill="#fff"/></svg>',
     };
     function iconFor(p) {
@@ -182,6 +211,7 @@
       if (name.includes('minimax')) return ICONS.minimax;
       if (name.includes('百炼') || name.includes('阿里') || name.includes('dashscope') || name.includes('通义') || name.includes('qwen')) return ICONS.dashscope;
       if (name.includes('腾讯') || name.includes('混元') || name.includes('tencent') || name.includes('hunyuan')) return ICONS.tencent;
+      if (name.includes('小米') || name.includes('mimo')) return ICONS.mimo;
       if (name.includes('openai') || name.includes('gpt')) return ICONS.openai;
       return ICONS.generic;
     }
@@ -197,32 +227,41 @@
       { provider:'moonshot', name:'月之暗面', currency:'CNY', threshold:200,
         url:'https://api.moonshot.cn/v1/users/me/balance', jsonPath:'data.available_balance',
         hint:'只需填 <b>API Key</b>（在 <a href="https://platform.moonshot.cn/console/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">月之暗面平台「API Key 管理」页</a>创建）。余额为人民币。' },
-      { provider:'minimax', name:'MiniMax', currency:'CNY', threshold:200,
-        url:'https://www.minimaxi.com/v1/token_plan/remains', jsonPath:'current_interval_usage_count',
-        hint:'<b>Token Plan API Key</b>（在 <a href="https://platform.minimax.cn/console/access?tab=api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">MiniMax 平台「Token Plan 密钥管理」页</a>创建）：返回当前5小时滚动窗口内剩余的Token请求次数（非人民币）。<br><b>普通开放平台API Key</b>：请手动访问 <a href="https://platform.minimax.cn/console/user-center/balance" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">MiniMax 账户中心</a> 查看余额。' },
-      { provider:'zhipu', name:'智谱AI', currency:'CNY', threshold:200,
-        hint:'只需填 <b>API Key</b>（在 <a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">智谱开放平台「API Keys」页</a>创建，格式为 xxxxx.yyyyy）。查询的是智谱AI账户可用余额，单位为人民币。' },
-      { provider:'dashscope', name:'阿里云百炼', currency:'CNY', threshold:200,
-        hint:'需填两项：<b>API Key</b> 填 <a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">AccessKey ID</a>，<b>Secret Key</b> 填 <a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">AccessKey Secret</a>（阿里云 RAM 访问控制台创建；需有 BSS 费用查询权限）。查询的是阿里云账户可用余额。' },
-      { provider:'tencent', name:'腾讯云（混元）', currency:'CNY', threshold:200,
-        hint:'需填两项：<b>API Key</b> 填 <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">SecretId</a>，<b>Secret Key</b> 填 <a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">SecretKey</a>（腾讯云「访问管理-API密钥管理」页创建）。查询的是腾讯云账户可用余额，单位为人民币。' },
-      { provider:'openai', name:'OpenAI', currency:'USD', threshold:10,
-        hint:'需填 <b>Admin Key</b>（组织管理员在 <a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">platform.openai.com「API Keys」</a>创建，sk-admin 开头）。余额 = 预付总额 - 本月消耗（美元）。国内访问需代理：启动服务前设置环境变量 NODE_USE_ENV_PROXY=1 和 HTTPS_PROXY。' },
-      { provider:'mimo', name:'小米多模态（MiMo）', currency:'CNY', threshold:10,
-        url:'https://mimo.mi.com/api/v1/balance', jsonPath:'data.balance',
-        hint:'只需填 <b>API Key</b>（在 <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="color:var(--brand);">小米多模态平台「API Key 管理」页</a>创建）。' },
+      // ===== 浏览器抓取型（scrape）：无官方余额 API，打开钱包页读取余额 =====
+      // 首次需运行 node scripts/wallet-login.mjs 登录一次，之后定时巡检自动抓取
+      { provider:'scrape', name:'腾讯云', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://console.cloud.tencent.com/expense', jsonPath:'{"keyword":"可用余额","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开腾讯云费用中心读「账户余额」。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
+      { provider:'scrape', name:'MIMO', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://platform.xiaomimimo.com/console/balance', jsonPath:'{"keyword":"现金余额","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开小米 MiMo 控制台余额页。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
+      { provider:'scrape', name:'Kimi', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://platform.kimi.com/console/account', jsonPath:'{"keyword":"可用余额\n￥ ","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开 Kimi 控制台账户页读「可用余额」。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
+      { provider:'scrape', name:'阿里云', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://billing-cost.console.aliyun.com', jsonPath:'{"keyword":"可用额度","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开阿里云费用中心读「可用额度」。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
+      { provider:'scrape', name:'MiniMax', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://platform.minimax.cn/console/recharge-records', jsonPath:'{"keyword":"可用额度","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开 MiniMax 账户钱包页读「可用额度」（人民币余额）。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
+      { provider:'scrape', name:'火山引擎', balanceType:'scrape', currency:'CNY', threshold:200,
+        url:'https://console.volcengine.com/finance/account-overview', jsonPath:'{"keyword":"可用余额","max":10000000}',
+        hint:'浏览器方式：无需 API Key，打开火山引擎费用概览读「账户余额」。首次需运行 <code>node scripts/wallet-login.mjs</code> 登录一次。' },
     ];
 
     function renderQuickAdd() {
-      const bar = document.querySelector('#quick-add-bar');
-      bar.querySelectorAll('.quick-btn').forEach(b => b.remove());
+      const apiBar = document.querySelector('#quick-add-api');
+      const scrapeBar = document.querySelector('#quick-add-scrape');
+      if (apiBar) apiBar.innerHTML = '';
+      if (scrapeBar) scrapeBar.innerHTML = '';
       for (const t of QUICK_TEMPLATES) {
         const btn = document.createElement('button');
         btn.className = 'quick-btn';
         btn.style.cssText = 'display:inline-flex;align-items:center;gap:6px;border:1px solid #d1d5db;border-radius:6px;background:#fff;padding:4px 10px;cursor:pointer;font-size:13px;';
-        btn.innerHTML = `${ICONS[t.provider] || ICONS.generic}<span>${t.name}</span>`;
+        btn.innerHTML = `${iconFor(t)}<span>${t.name}</span>`;
         btn.onclick = () => showQuickForm(t);
-        bar.appendChild(btn);
+        const bar = (t.balanceType === 'scrape') ? scrapeBar : apiBar;
+        (bar || apiBar).appendChild(btn);
       }
     }
     renderQuickAdd();
@@ -236,11 +275,12 @@
       mimo:      { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
       mimo:      { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://mimo.mi.com/console/access" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
       zhipu:     { hide:['balance-url','json-path'], keyLabel:'API Key（模型调用）<a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'控制台 Token（JWT）<a href="https://open.bigmodel.cn/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
-      volcengine:{ hide:['balance-url','json-path','balance-type'], keyLabel:'Access Key ID（AK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'Secret Access Key（SK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
-      dashscope: { hide:['balance-url','json-path','balance-type'], keyLabel:'AccessKey ID<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'AccessKey Secret<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
-      tencent:   { hide:['balance-url','json-path','balance-type'], keyLabel:'SecretId<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'SecretKey<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
-      openai:    { hide:['key-secret','balance-url','json-path','balance-type'], keyLabel:'Admin Key（sk-admin 开头）<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      volcengine:{ hide:['balance-url','json-path'], keyLabel:'Access Key ID（AK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'Secret Access Key（SK）<a href="https://console.volcengine.com/iam/accesskey/" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      dashscope: { hide:['balance-url','json-path'], keyLabel:'AccessKey ID<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'AccessKey Secret<a href="https://ram.console.aliyun.com/manage/ak" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      tencent:   { hide:['balance-url','json-path'], keyLabel:'SecretId<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>', secretLabel:'SecretKey<a href="https://console.cloud.tencent.com/cam/capi" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      openai:    { hide:['key-secret','balance-url','json-path'], keyLabel:'Admin Key（sk-admin 开头）<a href="https://platform.openai.com/api-keys" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
       zhipu:     { hide:['key-secret','balance-url','json-path'], keyLabel:'API Key <a href="https://open.bigmodel.cn/apikey/platform" target="_blank" rel="noopener noreferrer" style="font-size:12px;color:var(--brand);margin-left:4px;">查看帮助</a>' },
+      scrape:    { hide:['key','key-secret'], keyLabel:'无需 API Key（浏览器登录抓取）', secretLabel:'无需 Secret Key' },
     };
     function setFieldVisible(name, visible) {
       const el = document.querySelector(`#form-grid [data-field="${name}"]`);
@@ -255,12 +295,28 @@
       document.querySelector('#f-key-secret-label').innerHTML = cfg?.secretLabel || 'Secret Key（火山 SK，可选）';
     }
 
+    // 余额类型切换：scrape 隐藏 Key 字段并提示首次登录，api 恢复按 provider 的字段配置
+    function onBalanceTypeChange() {
+      const type = document.querySelector('#f-balance-type').value;
+      const hint = document.querySelector('#scrape-hint');
+      if (type === 'scrape') {
+        setFieldVisible('key', false);
+        setFieldVisible('key-secret', false);
+        setFieldVisible('balance-url', true);
+        setFieldVisible('json-path', true);
+        hint.classList.remove('hidden');
+      } else {
+        applyFieldVisibility(document.querySelector('#f-provider').value);
+        hint.classList.add('hidden');
+      }
+    }
+
     function showQuickForm(t) {
       showAddForm();
       document.querySelector('#form-title').textContent = `快速添加：${t.name}`;
       document.querySelector('#f-name').value = t.name;
       document.querySelector('#f-provider').value = t.provider;
-      document.querySelector('#f-balance-type').value = 'api';
+      document.querySelector('#f-balance-type').value = t.balanceType || 'api';
       document.querySelector('#f-balance-url').value = t.url || '';
       document.querySelector('#f-json-path').value = t.jsonPath || '';
       document.querySelector('#f-currency').value = t.currency;
@@ -268,6 +324,7 @@
       document.querySelector('#f-recharge').value = '500';
       document.querySelector('#f-target').value = '';
       applyFieldVisibility(t.provider);
+      onBalanceTypeChange();
       const hint = document.querySelector('#form-hint');
       hint.innerHTML = 'ℹ️ ' + t.hint;
       hint.classList.remove('hidden');
@@ -280,11 +337,38 @@
       return `<span class="badge ok">${balance}</span>`;
     }
 
+    // 平台列表：前端分页，每页 10 条；预警横幅按全量计算
+    let platformsCache = [];
+    let platformsPage = 1;
+    const PLATFORMS_PAGE_SIZE = 10;
     async function loadPlatforms() {
-      const list = await api('/api/platforms');
+      platformsCache = await api('/api/platforms');
+      renderPlatforms();
+    }
+    function renderPlatforms() {
+      const list = platformsCache;
+      // 低于阈值的平台：顶部红色预警横幅 + 表格行红色高亮（按余额从低到高排序，最缺钱的排最前）
+      const low = list
+        .filter(p => p.latest_balance != null && p.latest_balance < (p.threshold ?? 200))
+        .sort((a, b) => (a.latest_balance - b.latest_balance) || (a.id - b.id));
+      const alertBar = document.querySelector('#alert-bar');
+      if (low.length) {
+        alertBar.innerHTML = `<b>⚠️ 余额预警：</b><br>${low.map(p =>
+          `<b>${esc(p.name)}</b> 余额 ${p.latest_balance}${esc(p.currency)}（低于阈值 ${p.threshold}，需充值约 ${(p.recharge_amount ?? 500)}${esc(p.currency)}）`
+        ).join('<br>')}`;
+        alertBar.classList.remove('hidden');
+      } else {
+        alertBar.classList.add('hidden');
+      }
+      const pages = Math.max(1, Math.ceil(list.length / PLATFORMS_PAGE_SIZE));
+      if (platformsPage > pages) platformsPage = pages;
+      const start = (platformsPage - 1) * PLATFORMS_PAGE_SIZE;
+      const pageList = list.slice(start, start + PLATFORMS_PAGE_SIZE);
       const tbody = document.querySelector('#platform-table tbody');
-      tbody.innerHTML = list.map(p => `
-        <tr>
+      tbody.innerHTML = pageList.map(p => {
+        const isLow = p.latest_balance != null && p.latest_balance < (p.threshold ?? 200);
+        return `
+        <tr${isLow ? ' class="low-balance"' : ''}>
           <td><span class="pname">${iconFor(p)}<b>${esc(p.name)}</b></span></td>
           <td>${esc(p.provider)}</td>
           <td>${balanceBadge(p.latest_balance, p.threshold)} ${esc(p.currency)}</td>
@@ -298,11 +382,30 @@
             <button class="danger" onclick="delPlatform(${p.id})">删除</button>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
+      const nav = document.querySelector('#platform-pagination');
+      nav.innerHTML = `
+        <span>共 ${list.length} 条 · 第 ${platformsPage}/${pages} 页</span>
+        <button onclick="platformsPage--;renderPlatforms()" ${platformsPage <= 1 ? 'disabled' : ''}>上一页</button>
+        <button onclick="platformsPage++;renderPlatforms()" ${platformsPage >= pages ? 'disabled' : ''}>下一页</button>
+      `;
     }
 
+    // 充值提醒列表：前端分页，每页 10 条
+    let ordersCache = [];
+    let ordersPage = 1;
+    const ORDERS_PAGE_SIZE = 10;
     async function loadOrders() {
-      const list = await api('/api/orders');
+      ordersCache = await api('/api/orders');
+      renderOrders();
+    }
+    function renderOrders() {
+      const total = ordersCache.length;
+      const pages = Math.max(1, Math.ceil(total / ORDERS_PAGE_SIZE));
+      if (ordersPage > pages) ordersPage = pages;
+      const start = (ordersPage - 1) * ORDERS_PAGE_SIZE;
+      const list = ordersCache.slice(start, start + ORDERS_PAGE_SIZE);
       const tbody = document.querySelector('#order-table tbody');
       tbody.innerHTML = list.map(o => `
         <tr>
@@ -311,31 +414,111 @@
           <td>${o.amount} ${esc(o.currency)}</td>
           <td class="${STATUS_CLASS[o.status] || ''}">${STATUS_LABEL[o.status] || o.status}</td>
           <td class="muted">${esc(o.reason || '')}</td>
+          <td class="muted">${esc(o.note || '')}</td>
           <td class="muted">${o.created_at}</td>
           <td class="row-actions">
+            <button onclick="editNote(${o.id})">备注</button>
             ${o.status === 'pending' ? `<button onclick="notifyOrder(${o.id})">发送通知</button>` : ''}
-            ${o.status === 'notified' ? `<button class="primary" onclick="markPaid(${o.id})">标记已打款</button>` : ''}
-            ${o.status === 'paid' ? `<button class="primary" onclick="tryCredit(${o.id})">检测到账</button> <button onclick="forceCredit(${o.id})">手动确认到账</button>` : ''}
+            ${o.status === 'notified' ? `<button class="primary" onclick="markPaid(${o.id})">登记打款</button>` : ''}
+            ${o.status === 'paid' ? `<button class="primary" onclick="tryCredit(${o.id})">检测到账</button> <button onclick="forceCredit(${o.id})">手动确认到账</button> <button onclick="unmarkPaid(${o.id})">撤销打款</button>` : ''}
           </td>
         </tr>
       `).join('');
+      const nav = document.querySelector('#order-pagination');
+      nav.innerHTML = `
+        <span>共 ${total} 条 · 第 ${ordersPage}/${pages} 页</span>
+        <button onclick="ordersPage--;renderOrders()" ${ordersPage <= 1 ? 'disabled' : ''}>上一页</button>
+        <button onclick="ordersPage++;renderOrders()" ${ordersPage >= pages ? 'disabled' : ''}>下一页</button>
+      `;
     }
 
     async function loadFund() {
       const data = await api('/api/fund');
-      document.querySelector('#fund-balance').textContent = data.pool.balance;
-      document.querySelector('#fund-badge').textContent = `资金池：${data.pool.balance}`;
-      const tbody = document.querySelector('#fund-table tbody');
-      const typeLabel = { deposit:'预存', recharge_deduct:'充值扣减', adjust:'调整' };
-      tbody.innerHTML = data.transactions.map(t => `
+      const txs = data.transactions || [];
+      // 累计充值 = 所有"充值到账"流水金额的绝对值之和（每笔确认到账自动记一条）
+      const total = txs.filter(t => t.type === 'recharge_deduct')
+        .reduce((s, t) => s + Math.abs(t.amount), 0);
+      document.querySelector('#fund-balance').textContent = total;
+      document.querySelector('#fund-badge').textContent = `累计充值：${total}`;
+    }
+
+    // 月度充值明细：按月份拉取各平台到账记录
+    let monthlyRows = [];
+    async function loadMonthly() {
+      const picker = document.querySelector('#month-picker');
+      if (!picker.value) {
+        const now = new Date();
+        picker.value = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      }
+      const data = await api(`/api/fund/monthly?month=${picker.value}`);
+      monthlyRows = data.rows || [];
+      const tbody = document.querySelector('#month-table tbody');
+      tbody.innerHTML = monthlyRows.map(r => `
         <tr>
-          <td>${typeLabel[t.type] || t.type}</td>
-          <td style="color:${t.amount>=0?'var(--green)':'var(--red)'}">${t.amount>=0?'+':''}${t.amount}</td>
-          <td>${t.balance_after}</td>
-          <td class="muted">${esc(t.note||'')}</td>
-          <td class="muted">${t.created_at}</td>
+          <td>${esc(r.platform_name)}</td>
+          <td>${r.amount}</td>
+          <td>${esc(r.currency || 'CNY')}</td>
+          <td class="muted">${esc(r.note || '')}</td>
+          <td class="muted">${r.credited_at || ''}</td>
         </tr>
       `).join('');
+      document.querySelector('#month-total').textContent = `本月合计：${data.total} ${monthlyRows[0]?.currency || '元'}`;
+      renderPie(monthlyRows);
+    }
+
+    // 按平台汇总绘制扇形统计图（纯 SVG，无外部依赖）
+    function renderPie(rows) {
+      const chart = document.querySelector('#month-chart');
+      if (!chart) return;
+      const total = rows.reduce((s, r) => s + (r.amount || 0), 0);
+      if (!total) { chart.innerHTML = '<div class="muted" style="font-size:13px;">本月暂无充值到账，暂无统计图</div>'; return; }
+      const byPlat = {};
+      rows.forEach(r => { byPlat[r.platform_name] = (byPlat[r.platform_name] || 0) + r.amount; });
+      const items = Object.entries(byPlat).map(([name, amt]) => ({ name, amt }));
+      const colors = ['#3B82F6','#F59E0B','#10B981','#EF4444','#8B5CF6','#06B6D4','#F97316','#84CC16','#EC4899','#64748B'];
+      const cx = 150, cy = 150, R = 100;
+      let angle = -90;
+      let svg = `<svg viewBox="0 0 300 300" style="max-width:320px;width:100%;height:auto;">`;
+      items.forEach((it, i) => {
+        const frac = it.amt / total;
+        const start = angle, end = angle + frac * 360;
+        angle = end;
+        const color = colors[i % colors.length];
+        if (frac >= 0.999) {
+          svg += `<circle cx="${cx}" cy="${cy}" r="${R}" fill="${color}"/>`;
+        } else {
+          const x1 = cx + R * Math.cos(start * Math.PI / 180);
+          const y1 = cy + R * Math.sin(start * Math.PI / 180);
+          const x2 = cx + R * Math.cos(end * Math.PI / 180);
+          const y2 = cy + R * Math.sin(end * Math.PI / 180);
+          const large = frac > 0.5 ? 1 : 0;
+          svg += `<path d="M${cx},${cy} L${x1.toFixed(2)},${y1.toFixed(2)} A${R},${R} 0 ${large} 1 ${x2.toFixed(2)},${y2.toFixed(2)} Z" fill="${color}"/>`;
+        }
+      });
+      svg += '</svg>';
+      const legend = items.map((it, i) => `
+        <div style="display:flex;align-items:center;gap:6px;font-size:13px;margin:2px 0;">
+          <span style="width:12px;height:12px;border-radius:2px;background:${colors[i % colors.length]};display:inline-block;flex:none;"></span>
+          ${esc(it.name)}：${it.amt} 元（${(it.amt / total * 100).toFixed(1)}%）
+        </div>`).join('');
+      chart.innerHTML = `<div style="display:flex;gap:20px;flex-wrap:wrap;align-items:center;">${svg}<div>${legend}</div></div>`;
+    }
+
+    // 导出月度明细为 CSV（Excel 可直接打开，含 BOM 解决中文乱码）
+    function exportMonthly() {
+      const month = document.querySelector('#month-picker').value;
+      if (!monthlyRows.length) return alert('该月暂无充值到账记录');
+      let csv = '平台,金额,币种,用途,到账时间\n';
+      monthlyRows.forEach(r => {
+        csv += `${r.platform_name},${r.amount},${r.currency || 'CNY'},"${(r.note || '').replace(/"/g, '""')}",${r.credited_at || ''}\n`;
+      });
+      const blob = new Blob(['\ufeff' + csv], { type: 'text/csv;charset=utf-8' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `充值统计_${month}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
     }
 
     async function refreshOne(id) { await api(`/api/platforms/${id}/refresh`, { method:'POST' }); loadPlatforms(); }
@@ -355,11 +538,13 @@
       editingId = null;
       document.querySelector('#form-title').textContent = '添加平台';
       document.querySelector('#form-hint').classList.add('hidden');
-      applyFieldVisibility(null);
+      // 先重置所有字段为默认值，再计算字段可见性（避免残留上次模板的状态）
       document.querySelector('#f-name').value = '';
       document.querySelector('#f-provider').value = 'generic';
       document.querySelector('#f-key').value = '';
       document.querySelector('#f-key-secret').value = '';
+      document.querySelector('#f-key').placeholder = 'sk-...';
+      document.querySelector('#f-key-secret').placeholder = '火山引擎填 Secret Access Key';
       document.querySelector('#f-balance-type').value = 'api';
       document.querySelector('#f-balance-url').value = '';
       document.querySelector('#f-json-path').value = '';
@@ -367,6 +552,8 @@
       document.querySelector('#f-threshold').value = '200';
       document.querySelector('#f-recharge').value = '500';
       document.querySelector('#f-target').value = '';
+      applyFieldVisibility('generic');
+      onBalanceTypeChange();
       document.querySelector('#add-form').classList.remove('hidden');
     }
     function hideAddForm(){ document.querySelector('#add-form').classList.add('hidden'); }
@@ -376,6 +563,7 @@
       const p = await api(`/api/platforms/${id}`);
       editingId = id;
       document.querySelector('#form-title').textContent = `编辑平台 #${id}`;
+      document.querySelector('#form-hint').classList.add('hidden'); // 编辑时不显示快速添加模板提示
       document.querySelector('#f-name').value = p.name || '';
       document.querySelector('#f-provider').value = p.provider || 'generic';
       // 密钥字段：列表接口已掩码，编辑时不回填明文，留空表示保持不变
@@ -384,6 +572,8 @@
       document.querySelector('#f-key').placeholder = p.api_key ? '已配置（留空保持不变）' : 'sk-...';
       document.querySelector('#f-key-secret').placeholder = p.api_key_secret ? '已配置（留空保持不变）' : '火山引擎填 Secret Access Key';
       document.querySelector('#f-balance-type').value = p.balance_type || 'api';
+      applyFieldVisibility(p.provider);
+      onBalanceTypeChange();
       document.querySelector('#f-balance-url').value = p.balance_api_url || '';
       document.querySelector('#f-json-path').value = p.balance_json_path || '';
       document.querySelector('#f-currency').value = p.currency || 'USD';
@@ -419,22 +609,41 @@
       } catch (e) { alert(e.message); }
     }
 
-    async function runMonitor() { await api('/api/monitor/run', { method:'POST' }); loadPlatforms(); loadOrders(); }
+    let monitorPollTimer = null;
+    async function runMonitor() {
+      // 巡检期间每 4 秒自动刷新页面数据，平台余额逐个出来时不用手动刷新
+      loadPlatforms(); loadOrders(); loadFund();
+      if (monitorPollTimer) clearInterval(monitorPollTimer);
+      monitorPollTimer = setInterval(() => { loadPlatforms(); loadOrders(); loadFund(); }, 4000);
+      try {
+        await api('/api/monitor/run', { method:'POST' });
+      } catch (e) {
+        alert('巡检失败：' + e.message);
+      }
+      // 巡检结束再完整刷新一次
+      loadPlatforms(); loadOrders(); loadFund();
+      clearInterval(monitorPollTimer);
+      monitorPollTimer = null;
+    }
     async function notifyOrder(id) { await api(`/api/orders/${id}/notify`, { method:'POST' }); loadOrders(); }
     async function markPaid(id) { await api(`/api/orders/${id}/paid`, { method:'POST' }); loadOrders(); }
+    async function unmarkPaid(id) {
+      if (!confirm('确认撤销打款？该单将改回「已通知」状态，需重新标记已打款。')) return;
+      await api(`/api/orders/${id}/unmark-paid`, { method:'POST' });
+      loadOrders();
+    }
+    async function editNote(id) {
+      const note = prompt('填写这笔充值提醒的用途备注（如：日常调用充值、活动消耗补足等）：');
+      if (note === null) return;
+      await api(`/api/orders/${id}/note`, { method:'POST', body:{ note } });
+      loadOrders();
+    }
     async function tryCredit(id) {
       try { await api(`/api/orders/${id}/credit`, { method:'POST' }); }
       catch (e) { alert(e.message); }
       loadOrders();
     }
     async function forceCredit(id) { await api(`/api/orders/${id}/credit-force`, { method:'POST' }); loadOrders(); loadFund(); }
-    async function deposit() {
-      const amount = parseFloat(document.querySelector('#deposit-amount').value);
-      if (!amount) return alert('请输入金额');
-      await api('/api/fund/deposit', { method:'POST', body:{ amount } });
-      document.querySelector('#deposit-amount').value = '';
-      loadFund();
-    }
 
     function val(sel) { return document.querySelector(sel).value; }
     function esc(s) { return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -449,7 +658,7 @@
           document.querySelector(`#tab-${name}`).classList.toggle('hidden', name !== tab);
         });
         if (tab === 'orders') loadOrders();
-        if (tab === 'fund') loadFund();
+        if (tab === 'fund') { loadFund(); loadMonthly(); }
       });
     });
 

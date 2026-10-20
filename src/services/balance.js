@@ -4,6 +4,7 @@
 import db from '../db/index.js';
 import { createHash, createHmac } from 'node:crypto';
 import { scrapeMiniMaxBalance } from './scraper_minimax.mjs';
+import { scrapeWalletBalance, parseScrapeRule, storageFileFor } from './scraper_wallets.mjs';
 
 // 火山引擎 OpenAPI 签名（HMAC-SHA256，类似 AWS SigV4）
 function sha256hex(s) { return createHash('sha256').update(s).digest('hex'); }
@@ -383,8 +384,20 @@ const providers = {
   },
 
   scrape: async (platform) => {
-    // 抓取模式：预留，具体实现按平台补充
-    throw new Error('抓取模式尚未针对该平台实现，请改用 api 或 manual');
+    // 浏览器抓取：打开钱包页面（balance_api_url），按 balance_json_path 规则提取余额
+    // 配置示例：balance_api_url=https://platform.minimax.cn/console/account-wallet
+    //          balance_json_path={"keyword":"可用额度","max":10000000}
+    if (!platform.balance_api_url) {
+      throw new Error('scrape 模式需要配置钱包页面地址（balance_api_url）');
+    }
+    const rule = parseScrapeRule(platform.balance_json_path);
+    const balance = await scrapeWalletBalance({
+      url: platform.balance_api_url,
+      rule,
+      debugLabel: platform.name,
+      storageFile: storageFileFor(platform.name),
+    });
+    return { balance, raw: {}, unit: platform.currency || '元', scraped: true };
   },
 
   manual: async (platform) => {
@@ -397,13 +410,16 @@ const providers = {
 };
 
 export async function fetchBalance(platform) {
-  // 优先按 provider 匹配专用查询器（如 volcengine），否则按 balance_type，再兑底到 generic
+  // balance_type=scrape/manual 时以查询方式为准（浏览器抓取/手动录入），
+  // 其余情况优先按 provider 匹配专用查询器，再兑底到 generic
   const type = platform.balance_type || 'api';
   const provider = platform.provider;
   const fetcher =
-    (provider && providers[provider]) ||
-    providers[type] ||
-    providers.generic;
+    (type === 'scrape' || type === 'manual')
+      ? providers[type]
+      : (provider && providers[provider]) ||
+        providers[type] ||
+        providers.generic;
   const result = await fetcher(platform);
   return result;
 }

@@ -62,7 +62,7 @@ npm run dev
 
 - **api**：官方接口。OpenAI 内置支持（`provider=openai`），其它用 `generic` 填 `balance_api_url` + `balance_json_path`
 - **manual**：手动录入，页面「录入余额」按钮
-- **scrape**：抓取，预留扩展点，需针对具体平台补充实现（`src/services/balance.js`）
+- **scrape**：浏览器抓取钱包页余额（`src/services/scraper_wallets.mjs`）。配 `balance_api_url` 为钱包页面地址，`balance_json_path` 为提取规则（纯关键字或 `{"keyword":"可用额度","max":10000000}`）；首次需运行 `node scripts/wallet-login.mjs` 登录一次保存登录态，之后定时巡检自动抓取
 
 ## 充值流程状态机
 

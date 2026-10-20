@@ -1,7 +1,24 @@
-// 充值自动化：阈值判断 → 生成充值单 → 邮件通知 → 跟踪到账 → 资金池记账
+// 充值自动化：阈值判断 → 生成充值单 → 邮件通知 → 桌面弹窗 → 跟踪到账 → 资金池记账
 
 import db from '../db/index.js';
 import { sendRechargeEmail } from './mailer.js';
+import { sendPhoneNotify } from './push.js';
+import { spawn } from 'node:child_process';
+
+// Windows 桌面弹窗提醒（独立进程，不阻塞监控）
+function desktopAlert(title, msg) {
+  try {
+    const safe = String(msg).replace(/'/g, "''");
+    const ps = `Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('${safe}', '${title}', 'OK', 'Warning', 'Button1')`;
+    const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], {
+      detached: true,
+      stdio: 'ignore',
+    });
+    child.unref();
+  } catch (err) {
+    console.error('[recharge] 桌面弹窗失败:', err.message);
+  }
+}
 
 // 检查某个平台是否低于阈值，若是则生成充值单（幂等：同一平台未完成的单子不重复生成）
 export function maybeCreateRechargeOrder(platformId) {
@@ -54,6 +71,19 @@ export async function notifyOrder(orderId) {
     reason: order.reason,
     orderId: order.id,
   });
+
+  // 桌面弹窗提醒（余额低于阈值时明显提示）
+  desktopAlert(
+    '【余额预警】' + order.platform_name,
+    `平台「${order.platform_name}」余额低于阈值，已生成充值单 #${order.id}：需充值 ${order.amount} ${order.currency}\n原因：${order.reason}\n请及时登录平台充值。`
+  );
+
+  // 手机推送提醒（Server酱微信 + Bark，config.json 里配了哪个就发哪个）
+  const phone = await sendPhoneNotify(
+    '【余额预警】' + order.platform_name,
+    `平台「${order.platform_name}」余额低于阈值，已生成充值单 #${order.id}：需充值 ${order.amount} ${order.currency}。\n原因：${order.reason}`
+  );
+  if (Object.keys(phone).length) console.log('[recharge] 手机推送:', JSON.stringify(phone));
 
   db.prepare(
     "UPDATE recharge_orders SET status = 'notified', notified_at = datetime('now','localtime') WHERE id = ?"

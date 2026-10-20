@@ -14,27 +14,31 @@ try {
 
 const intervalMs = config.monitor?.intervalMs ?? 600000;
 
-// 单次巡检
+// 单次巡检（平台按批并行刷新，最多 3 个同时抓，整体提速）
 export async function runMonitorCycle() {
   const platforms = db.prepare('SELECT * FROM platforms WHERE active = 1').all();
   const results = { refreshed: [], orders: [], credited: [], errors: [] };
 
-  for (const p of platforms) {
-    // 1. 刷新余额
-    const r = await refreshPlatformBalance(p.id);
-    if (!r.ok) {
-      results.errors.push({ platformId: p.id, error: r.error });
-      continue;
-    }
-    results.refreshed.push({ platformId: p.id, balance: r.balance });
+  const BATCH = 3;
+  for (let i = 0; i < platforms.length; i += BATCH) {
+    const slice = platforms.slice(i, i + BATCH);
+    await Promise.all(slice.map(async (p) => {
+      // 1. 刷新余额
+      const r = await refreshPlatformBalance(p.id);
+      if (!r.ok) {
+        results.errors.push({ platformId: p.id, error: r.error });
+        return;
+      }
+      results.refreshed.push({ platformId: p.id, balance: r.balance });
 
-    // 2. 阈值判断，生成充值单
-    const order = maybeCreateRechargeOrder(p.id);
-    if (order) {
-      results.orders.push(order);
-      // 3. 通知
-      await notifyOrder(order.orderId);
-    }
+      // 2. 阈值判断，生成充值单
+      const order = maybeCreateRechargeOrder(p.id);
+      if (order) {
+        results.orders.push(order);
+        // 3. 通知
+        await notifyOrder(order.orderId);
+      }
+    }));
   }
 
   // 4. 到账跟踪：已打款的单子尝试确认到账

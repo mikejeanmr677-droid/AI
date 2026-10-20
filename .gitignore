@@ -16,3 +16,16 @@ playwright-user-data/
 zhipu-user-data/
 src/playwright-user-data/
 src/services/playwright-user-data/
+
+# 登录态文件与浏览器档案（含 Cookie/Token，绝不上传）
+src/wallet-states/
+src/chrome-user-data/
+src/debug_*.png
+
+# 一次性临时/诊断脚本
+__*.mjs
+__*.cjs
+scripts/_*.mjs
+test_*.mjs
+fix_*.cjs
+start-chrome-debug.cmd

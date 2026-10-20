@@ -108,6 +108,15 @@ npm run dev
 - **balance_api_url**：余额查询接口地址
 - **balance_json_path**：返回 JSON 中余额值的路径（如 `data.balance`、`result.available`）
 
+### 浏览器抓取（scrape）
+
+没有官方余额 API 或需登录控制台才能看余额的平台（腾讯云TokenHub、小米MiMo、Kimi、阿里云百炼、MiniMax、火山引擎）：
+- `balance_type=scrape`，`balance_api_url` 填钱包页面地址，`balance_json_path` 填提取规则（纯关键字如 `可用额度`，或 JSON `{"keyword":"可用额度","max":10000000}`）
+- 实现：`src/services/scraper_wallets.mjs`，用 playwright 打开钱包页，在页面文本中按「关键字 + 正则」提取余额
+- 登录态：首次运行 `node scripts/wallet-login.mjs` 在浏览器中手动登录一次（存入 `src/playwright-user-data`），之后定时巡检无头自动抓取
+- 验证：`node scripts/wallet-check.mjs` 无头抓取全部 scrape 平台并打印结果
+- 初始化：`node scripts/setup-wallet-platforms.mjs` 把 6 个平台写入数据库（可重复执行）
+
 ### 手动录入（manual）
 
 没有 API 的平台，设 `balance_type=manual`，在页面点「录入余额」手动填入。
