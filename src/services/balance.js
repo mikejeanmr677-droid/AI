@@ -4,7 +4,7 @@
 import db from '../db/index.js';
 import { createHash, createHmac } from 'node:crypto';
 import { scrapeMiniMaxBalance } from './scraper_minimax.mjs';
-import { scrapeWalletBalance, parseScrapeRule, storageFileFor } from './scraper_wallets.mjs';
+import { scrapeWalletBalance, parseScrapeRule, storageFileFor, enrichRuleWithBuiltin } from './scraper_wallets.mjs';
 
 // 火山引擎 OpenAPI 签名（HMAC-SHA256，类似 AWS SigV4）
 function sha256hex(s) { return createHash('sha256').update(s).digest('hex'); }
@@ -390,7 +390,8 @@ const providers = {
     if (!platform.balance_api_url) {
       throw new Error('scrape 模式需要配置钱包页面地址（balance_api_url）');
     }
-    const rule = parseScrapeRule(platform.balance_json_path);
+    // 先套用内置精确正则（未显式配置 regex 时自动补全，抓取更稳定）
+    const rule = enrichRuleWithBuiltin(parseScrapeRule(platform.balance_json_path), platform.name, platform.provider);
     const balance = await scrapeWalletBalance({
       url: platform.balance_api_url,
       rule,

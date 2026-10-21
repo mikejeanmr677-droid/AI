@@ -59,11 +59,51 @@ export function parseScrapeRule(raw) {
   return { keyword, regex, max };
 }
 
-// 从页面文本中提取余额：找到关键字所有出现位置，优先选"后面跟着金额符号（¥/￥）"的那处。
-// 原因：页面里"可用余额"等关键字常出现多次——提示语（如"可用余额、今日消费…延迟10分钟"）、
-// 真实余额标签、"可用余额预警"栏目名等。只有真实标签处紧跟金额符号；提示语后跟无关数字、
-// 栏目名后跟账号等文本，取错了就会抓到 10 / 2251 这类错误值。
+// 内置各平台精确提取正则（按登录态 key 匹配）：
+// 与规则里的 regex 字段等价，但无需用户配置——抓取时自动套用。
+// 模板说明：关键字后 12 个非数字/非金额符号字符内必须出现 ¥/￥，再接金额（捕获组1=金额）。
+// 这样提示语（"可用余额、今日消费…延迟10分钟"）、栏目名（"可用余额预警"）、账号数字都不会被误中。
+export const PRECISE_REGEX_BY_KEY = {
+  // MiniMax：账户钱包\n可用额度\n¥\n15.00
+  minimax: '可用额度[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+  // 腾讯云：可用余额\n余额预警\n0.00元（无货币符号，直接取紧跟数字）
+  tencent: '可用余额[^\\d]{0,15}?(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+  // MIMO：现金余额：¥ 0.00
+  mimo: '现金余额[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+  // Kimi：可用余额\n￥ 15.00000
+  kimi: '可用余额[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+  // 阿里云：账户可用额度\n¥ 0
+  bailian: '可用额度[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+  // 火山引擎：可用余额 \n¥0.00（"可用余额预警"栏目名后无金额符号，天然不中）
+  volc: '可用余额[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
+};
+
+// 给规则补上内置精确正则（仅当规则未显式配置 regex 时），返回新规则对象
+export function enrichRuleWithBuiltin(rule, name, provider) {
+  if (!rule || rule.regex) return rule;
+  const key = STORAGE_KEY_BY_NAME[name] || provider;
+  if (key && PRECISE_REGEX_BY_KEY[key]) {
+    return { ...rule, regex: PRECISE_REGEX_BY_KEY[key] };
+  }
+  return rule;
+}
+
+// 从页面文本中提取余额，两条路径：
+//   1. 精确正则优先：整页扫"关键字+金额符号+数字"，支持捕获组（取组1=金额），
+//      页面提示语、栏目名、账号名里的同名文字不会误中；
+//   2. 关键字兜底：正则未命中时，在关键字各出现位置中优先选"后跟金额符号（¥/￥）"的那处，
+//      取其后的第一个数字。
 export function extractBalance(text, { keyword, regex, max }) {
+  const limit = max ?? 1e7;
+  const pick = (m) => {
+    const g = m[1] !== undefined ? m[1] : m[0];
+    const n = parseFloat(String(g).replace(/,/g, ''));
+    return Number.isFinite(n) && Math.abs(n) <= limit ? n : null;
+  };
+  if (regex) {
+    const hits = [...text.matchAll(new RegExp(regex, 'g'))].map(pick).filter((v) => v !== null);
+    if (hits.length) return hits[0];
+  }
   let segment = text;
   if (keyword) {
     const positions = [];
@@ -83,9 +123,9 @@ export function extractBalance(text, { keyword, regex, max }) {
     segment = text.slice(chosen, chosen + 160); // 关键字后面 160 字符通常是金额区域
   }
   // 默认正则支持千分位逗号与负号（欠费）
-  const numRe = regex ? new RegExp(regex, 'g') : /-?[0-9][0-9,]*(?:\.[0-9]+)?/g;
+  const numRe = /-?[0-9][0-9,]*(?:\.[0-9]+)?/g;
   const matches = [...segment.matchAll(numRe)].map((m) => parseFloat(m[0].replace(/,/g, '')));
-  const valid = matches.filter((n) => Number.isFinite(n) && Math.abs(n) <= max);
+  const valid = matches.filter((n) => Number.isFinite(n) && Math.abs(n) <= limit);
   if (valid.length === 0) return null;
   // 关键字后出现的第一个数字即余额
   return valid[0];
