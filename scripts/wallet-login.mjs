@@ -19,7 +19,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PRESET_PLATFORMS = [
   { key: 'tencent',  name: '腾讯云TokenHub', url: 'https://console.cloud.tencent.com/expense',              rule: '{"keyword":"可用余额","max":10000000}' },
   { key: 'mimo',     name: '小米MiMo',       url: 'https://platform.xiaomimimo.com/console/balance',        rule: '{"keyword":"现金余额","max":10000000}' },
-  { key: 'kimi',     name: '月之暗面Kimi',   url: 'https://platform.kimi.com/console/account',              rule: '{"keyword":"可用余额\n￥ ","max":10000000}' },
+  { key: 'kimi',     name: '月之暗面Kimi',   url: 'https://platform.kimi.com/console/account',              rule: '{"keyword":"可用余额","max":10000000}' },
   { key: 'bailian',  name: '阿里云百炼',     url: 'https://billing-cost.console.aliyun.com',                rule: '{"keyword":"可用额度","max":10000000}' },
   { key: 'minimax',  name: 'MiniMax',        url: 'https://platform.minimax.cn/console/recharge-records',   rule: '{"keyword":"可用额度","max":10000000}' },
   { key: 'volc',     name: '火山引擎',       url: 'https://console.volcengine.com/finance/account-overview', rule: '{"keyword":"可用余额","max":10000000}' },

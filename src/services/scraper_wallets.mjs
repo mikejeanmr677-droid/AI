@@ -59,11 +59,13 @@ export function parseScrapeRule(raw) {
   return { keyword, regex, max };
 }
 
-// 从页面文本中提取余额：取关键字出现处之后的片段，用正则取第一个合理数字
+// 从页面文本中提取余额：取关键字最后一次出现处之后的片段。
+// 注意：页面里"可用余额"等关键字常出现两次——一次在提示语（如"可用余额、今日消费…延迟10分钟"），
+// 一次在真实余额标签；提示语后跟的是无关数字，必须取最后一次出现才定位到真实金额。
 export function extractBalance(text, { keyword, regex, max }) {
   let segment = text;
   if (keyword) {
-    const idx = text.indexOf(keyword);
+    const idx = text.lastIndexOf(keyword);
     if (idx < 0) return null; // 关键字都没出现，视为页面结构不符
     segment = text.slice(idx, idx + 160); // 关键字后面 160 字符通常是金额区域
   }
