@@ -377,6 +377,7 @@
           <td>${p.recharge_amount}</td>
           <td>${p.latest_error ? `<span class="badge err" title="${esc(p.latest_error)}">抓取失败</span>` : (p.active ? '<span class="badge ok">启用</span>' : '<span class="badge err">停用</span>')}</td>
           <td class="row-actions">
+            ${p.balance_type === 'scrape' ? `<button class="primary" onclick="openLogin(${p.id})" id="login-btn-${p.id}">登录</button>` : ''}
             <button onclick="refreshOne(${p.id})">刷新余额</button>
             <button onclick="inputBalance(${p.id})">录入余额</button>
             <button onclick="editPlatform(${p.id})">编辑</button>
@@ -602,12 +603,49 @@
       try {
         if (editingId != null) {
           await api(`/api/platforms/${editingId}`, { method:'PUT', body });
+          editingId = null;
+          hideAddForm(); loadPlatforms();
         } else {
-          await api('/api/platforms', { method:'POST', body });
+          const created = await api('/api/platforms', { method:'POST', body });
+          editingId = null;
+          hideAddForm(); loadPlatforms();
+          // 新建浏览器抓取型平台：若还没有登录态文件，主动引导一键登录
+          if (body.balance_type === 'scrape') {
+            const state = await api(`/api/platforms/${created.id}/login-state`).catch(() => null);
+            if (state && !state.exists) {
+              if (confirm('平台已保存。浏览器抓取型需要登录一次才能抓取余额，现在打开登录窗口吗？')) {
+                openLogin(created.id);
+              }
+            }
+          }
         }
-        editingId = null;
-        hideAddForm(); loadPlatforms();
       } catch (e) { alert(e.message); }
+    }
+
+    // 一键登录：服务端拉起登录脚本弹出浏览器窗口
+    async function openLogin(id) {
+      const btn = document.querySelector(`#login-btn-${id}`);
+      if (btn) { btn.disabled = true; btn.textContent = '登录中...'; }
+      try {
+        const r = await api('/api/login/run', { method:'POST', body:{ platform: id } });
+        alert(r.message || '登录窗口已打开');
+        if (btn && r.running) {
+          // 登录流程期间按钮保持"登录中"，轮询状态直到结束
+          const timer = setInterval(async () => {
+            try {
+              const s = await api('/api/login/status');
+              if (!s.running) {
+                clearInterval(timer);
+                btn.disabled = false; btn.textContent = '登录';
+                loadPlatforms();
+              }
+            } catch {}
+          }, 3000);
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '登录'; }
+        alert('启动登录失败：' + e.message);
+      }
     }
 
     let monitorPollTimer = null;

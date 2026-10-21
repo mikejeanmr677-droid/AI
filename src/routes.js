@@ -6,8 +6,63 @@ import {
   depositFundPool, getFundPool,
 } from './services/recharge.js';
 import { runMonitorCycle } from './services/monitor.js';
+import { spawn } from 'node:child_process';
+import { fileURLToPath } from 'node:url';
+import { dirname, join } from 'node:path';
+import { STORAGE_KEY_BY_NAME, storageFileFor } from './services/scraper_wallets.mjs';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PROJECT_ROOT = join(__dirname, '..');
+
+let loginRunning = false;
+
+// 平台 → 登录态文件 key（与 wallet-login.mjs 的转换一致）
+function storageKeyFor(platform) {
+  return STORAGE_KEY_BY_NAME[platform.name] || platform.provider || platform.name;
+}
 
 export async function registerRoutes(fastify) {
+  // ===== 一键登录 =====
+  fastify.get('/api/login/status', async () => ({ running: loginRunning }));
+
+  // 拉起登录脚本（弹浏览器窗口；不阻塞等待，用户完成登录后脚本自行退出）
+  fastify.post('/api/login/run', async (req) => {
+    if (loginRunning) {
+      return { running: true, message: '已有登录流程正在运行，请先在弹出的窗口完成登录' };
+    }
+    const b = req.body || {};
+    let platform = null;
+    if (b.platform) {
+      const row = db.prepare('SELECT * FROM platforms WHERE id = ? OR name = ?').get(b.platform, b.platform);
+      platform = row || null;
+    }
+    const args = ['scripts/wallet-login.mjs'];
+    if (platform) args.push(storageKeyFor(platform));
+    loginRunning = true;
+    try {
+      const child = spawn(process.execPath, args, { cwd: PROJECT_ROOT, detached: true, stdio: 'ignore' });
+      child.on('exit', () => { loginRunning = false; });
+      child.on('error', () => { loginRunning = false; });
+      child.unref();
+      return {
+        running: true,
+        message: platform
+          ? `已打开「${platform.name}」的登录窗口，请在弹出的浏览器里完成登录；登录成功会自动保存并关闭`
+          : '已打开登录窗口，请按顺序完成各平台登录',
+      };
+    } catch (err) {
+      loginRunning = false;
+      return { running: false, message: '启动登录失败：' + err.message };
+    }
+  });
+
+  // 查询某平台是否已有登录态文件（没有则抓取前必须登录一次）
+  fastify.get('/api/platforms/:id/login-state', async (req) => {
+    const p = db.prepare('SELECT * FROM platforms WHERE id = ?').get(req.params.id);
+    if (!p) return { exists: false, key: null };
+    return { exists: Boolean(storageFileFor(p.name, p.provider)), key: storageKeyFor(p) };
+  });
+
   // ===== 平台面板 =====
   fastify.get('/api/platforms', async () => {
     const list = db.prepare('SELECT * FROM platforms ORDER BY id').all();
