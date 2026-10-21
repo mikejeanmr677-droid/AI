@@ -70,6 +70,7 @@
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;" id="quick-add-bar">
           <span style="font-size:13px; color:#6b7280;">⚡ 快速添加：</span>
           <button class="primary" onclick="showAddForm()">+ 添加平台</button>
+          <button id="login-all-btn" onclick="openLoginAll()" style="display:none; background:#7c3aed; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:13px;">🔑 全部一键登录</button>
         </div>
         <div id="quick-add-groups" style="margin-top:10px;">
           <div style="margin-bottom:10px;">
@@ -348,6 +349,12 @@
     }
     function renderPlatforms() {
       const list = platformsCache;
+      // 有浏览器抓取型平台时显示"全部一键登录"按钮
+      const loginAllBtn = document.querySelector('#login-all-btn');
+      if (loginAllBtn) {
+        const hasScrape = list.some(p => p.balance_type === 'scrape');
+        loginAllBtn.style.display = hasScrape ? '' : 'none';
+      }
       // 低于阈值的平台：顶部红色预警横幅 + 表格行红色高亮（按余额从低到高排序，最缺钱的排最前）
       const low = list
         .filter(p => p.latest_balance != null && p.latest_balance < (p.threshold ?? 200))
@@ -644,6 +651,31 @@
         }
       } catch (e) {
         if (btn) { btn.disabled = false; btn.textContent = '登录'; }
+        alert('启动登录失败：' + e.message);
+      }
+    }
+
+    // 全部一键登录：一次拉起所有浏览器抓取型平台的登录流程
+    async function openLoginAll() {
+      const btn = document.querySelector('#login-all-btn');
+      if (btn) { btn.disabled = true; btn.textContent = '登录中...'; }
+      try {
+        const r = await api('/api/login/run', { method:'POST', body:{} });
+        alert(r.message || '登录窗口已打开');
+        if (r.running) {
+          const timer = setInterval(async () => {
+            try {
+              const s = await api('/api/login/status');
+              if (!s.running) {
+                clearInterval(timer);
+                btn.disabled = false; btn.textContent = '🔑 全部一键登录';
+                loadPlatforms();
+              }
+            } catch {}
+          }, 3000);
+        }
+      } catch (e) {
+        if (btn) { btn.disabled = false; btn.textContent = '🔑 全部一键登录'; }
         alert('启动登录失败：' + e.message);
       }
     }
