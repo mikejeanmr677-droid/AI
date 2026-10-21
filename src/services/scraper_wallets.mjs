@@ -59,6 +59,19 @@ export function parseScrapeRule(raw) {
   return { keyword, regex, max };
 }
 
+// 内置各平台"安全宽松关键字"（登录检测与抓取兜底使用）：
+// 数据库规则可能被页面编辑/误填写成带符号的坏值（如"可用余额￥ "），导致登录检测
+// 永远等不到、抓取永远失败。内置宽松词只匹配纯中文标签，页面只要出现即算命中，
+// 金额提取交给 PRECISE_REGEX_BY_KEY 精确完成。
+export const SAFE_KEYWORD_BY_KEY = {
+  minimax: '可用额度',
+  tencent: '可用余额',
+  mimo: '现金余额',
+  kimi: '可用余额',
+  bailian: '可用额度',
+  volc: '可用余额',
+};
+
 // 内置各平台精确提取正则（按登录态 key 匹配）：
 // 与规则里的 regex 字段等价，但无需用户配置——抓取时自动套用。
 // 模板说明：关键字后 12 个非数字/非金额符号字符内必须出现 ¥/￥，再接金额（捕获组1=金额）。
@@ -78,12 +91,20 @@ export const PRECISE_REGEX_BY_KEY = {
   volc: '可用余额[^\\d¥￥]{0,12}?[¥￥]\\s*(-?\\d[\\d,]*(?:\\.[0-9]+)?)',
 };
 
-// 给规则补上内置精确正则（仅当规则未显式配置 regex 时），返回新规则对象
+// 给规则补上内置安全关键字与精确正则（内置优先，防止数据库规则被写成坏值），返回新规则对象
 export function enrichRuleWithBuiltin(rule, name, provider) {
-  if (!rule || rule.regex) return rule;
+  if (!rule) return rule;
   const key = STORAGE_KEY_BY_NAME[name] || provider;
-  if (key && PRECISE_REGEX_BY_KEY[key]) {
-    return { ...rule, regex: PRECISE_REGEX_BY_KEY[key] };
+  if (key) {
+    const safeKeyword = SAFE_KEYWORD_BY_KEY[key];
+    const precise = PRECISE_REGEX_BY_KEY[key];
+    if (safeKeyword || precise) {
+      return {
+        keyword: safeKeyword || rule.keyword,
+        regex: rule.regex || precise || null,
+        max: rule.max,
+      };
+    }
   }
   return rule;
 }

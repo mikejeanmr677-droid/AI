@@ -11,7 +11,7 @@ import path from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db, { initSchema } from '../src/db/index.js';
-import { parseScrapeRule, STORAGE_DIR, STORAGE_KEY_BY_NAME, BROWSER_ARGS } from '../src/services/scraper_wallets.mjs';
+import { parseScrapeRule, STORAGE_DIR, STORAGE_KEY_BY_NAME, BROWSER_ARGS, SAFE_KEYWORD_BY_KEY } from '../src/services/scraper_wallets.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -55,6 +55,12 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
       const url = page.url();
       const text = await page.evaluate(() => (document.body ? document.body.innerText : ''));
       const ok = !isLoginUrl(url) && (!keyword || text.includes(keyword));
+      // 诊断日志：每 10 秒打印一次当前 URL 和关键字命中情况，便于排查登录卡住
+      const elapsed = Date.now() - start;
+      if (elapsed % 10000 < 2000) {
+        const sample = text.slice(0, 80).replace(/\s+/g, ' ');
+        console.log(`  [等待登录 ${Math.floor(elapsed / 1000)}s] url=${url} 命中关键字=${ok} 文本=${sample}`);
+      }
       if (ok) {
         stable += 1;
         if (stable >= 2) return true;
@@ -104,6 +110,9 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
       }
       const storageFile = path.join(STORAGE_DIR, `storage_${p.key}.json`);
       const rule = parseScrapeRule(p.rule);
+      // 登录检测用内置宽松关键字兜底：数据库规则可能被页面误写成带符号坏值（如"可用余额￥ "），
+      // 内置宽松词（如"可用余额"）只要页面出现即判定已登录，避免干等超时
+      const loginKeyword = SAFE_KEYWORD_BY_KEY[p.key] || rule.keyword;
       console.log(`[${p.name}] 打开 ${p.url}`);
       console.log('  请在浏览器窗口里登录（关闭窗口 = 放弃当前平台）。');
       let context, page;
@@ -115,7 +124,7 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
         console.log(`  ✗ 浏览器已不可用（窗口被关闭），结束登录流程。`);
         break;
       }
-      const ok = await waitLoggedIn(page, rule.keyword);
+      const ok = await waitLoggedIn(page, loginKeyword);
       if (ok) {
         await context.storageState({ path: storageFile });
         console.log(`  ✓ ${p.name} 登录成功，登录态已保存到 ${storageFile}`);
