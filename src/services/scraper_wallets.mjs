@@ -137,7 +137,8 @@ export function storageFileFor(name, fallbackKey = null) {
 //  - 禁用 Device Bound Sessions：腾讯云/小米/阿里云等平台使用 Chrome 设备绑定会话时，
 //    cookie 绑定在启动它的 Chrome 实例上，关闭浏览器后重新启动即失效；
 //    禁用后这些平台回退到普通 cookie，登录态才能跨实例持久保存。
-const BROWSER_ARGS = [
+// 注意：登录脚本（wallet-login.mjs）也必须用同一组参数，否则登录态与抓取环境不一致。
+export const BROWSER_ARGS = [
   '--no-sandbox',
   '--disable-setuid-sandbox',
   '--disable-features=DeviceBoundSessions,DeviceBoundSessionsV2',

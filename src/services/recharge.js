@@ -8,8 +8,9 @@ import { spawn } from 'node:child_process';
 // Windows 桌面弹窗提醒（独立进程，不阻塞监控）
 function desktopAlert(title, msg) {
   try {
-    const safe = String(msg).replace(/'/g, "''");
-    const ps = `Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('${safe}', '${title}', 'OK', 'Warning', 'Button1')`;
+    const safeTitle = String(title).replace(/'/g, "''");
+    const safeMsg = String(msg).replace(/'/g, "''");
+    const ps = `Add-Type -AssemblyName PresentationFramework; [System.Windows.MessageBox]::Show('${safeMsg}', '${safeTitle}', 'OK', 'Warning', 'Button1')`;
     const child = spawn('powershell', ['-NoProfile', '-WindowStyle', 'Hidden', '-Command', ps], {
       detached: true,
       stdio: 'ignore',

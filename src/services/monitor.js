@@ -15,6 +15,9 @@ try {
 
 const intervalMs = config.monitor?.intervalMs ?? 600000;
 
+// 巡检并发保护：定时巡检与手动"立即巡检"同时触发时，后者直接跳过（避免重复抓取/重复建单）
+let cycleRunning = false;
+
 // 读取/写入 settings 键值
 function setSetting(key, value) {
   db.prepare('INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)').run(key, String(value));
@@ -53,42 +56,48 @@ async function maybeNotifyFailures(platforms, errors) {
 
 // 单次巡检（平台按批并行刷新，最多 3 个同时抓，整体提速）
 export async function runMonitorCycle() {
-  const platforms = db.prepare('SELECT * FROM platforms WHERE active = 1').all();
-  const results = { refreshed: [], orders: [], credited: [], errors: [] };
+  if (cycleRunning) return { skipped: true, message: '已有巡检正在运行，请稍候' };
+  cycleRunning = true;
+  try {
+    const platforms = db.prepare('SELECT * FROM platforms WHERE active = 1').all();
+    const results = { refreshed: [], orders: [], credited: [], errors: [] };
 
-  const BATCH = 3;
-  for (let i = 0; i < platforms.length; i += BATCH) {
-    const slice = platforms.slice(i, i + BATCH);
-    await Promise.all(slice.map(async (p) => {
-      // 1. 刷新余额
-      const r = await refreshPlatformBalance(p.id);
-      if (!r.ok) {
-        results.errors.push({ platformId: p.id, error: r.error });
-        return;
-      }
-      results.refreshed.push({ platformId: p.id, balance: r.balance });
+    const BATCH = 3;
+    for (let i = 0; i < platforms.length; i += BATCH) {
+      const slice = platforms.slice(i, i + BATCH);
+      await Promise.all(slice.map(async (p) => {
+        // 1. 刷新余额
+        const r = await refreshPlatformBalance(p.id);
+        if (!r.ok) {
+          results.errors.push({ platformId: p.id, error: r.error });
+          return;
+        }
+        results.refreshed.push({ platformId: p.id, balance: r.balance });
 
-      // 2. 阈值判断，生成充值单
-      const order = maybeCreateRechargeOrder(p.id);
-      if (order) {
-        results.orders.push(order);
-        // 3. 通知
-        await notifyOrder(order.orderId);
-      }
-    }));
+        // 2. 阈值判断，生成充值单
+        const order = maybeCreateRechargeOrder(p.id);
+        if (order) {
+          results.orders.push(order);
+          // 3. 通知
+          await notifyOrder(order.orderId);
+        }
+      }));
+    }
+
+    // 4. 到账跟踪：已打款的单子尝试确认到账
+    const paidOrders = db.prepare("SELECT id FROM recharge_orders WHERE status = 'paid'").all();
+    for (const o of paidOrders) {
+      const cr = await tryCreditOrder(o.id);
+      if (cr.ok) results.credited.push(o.id);
+    }
+
+    // 5. 登录态过期自动提醒（连续失败 → 手机推送）
+    await maybeNotifyFailures(platforms, results.errors);
+
+    return results;
+  } finally {
+    cycleRunning = false;
   }
-
-  // 4. 到账跟踪：已打款的单子尝试确认到账
-  const paidOrders = db.prepare("SELECT id FROM recharge_orders WHERE status = 'paid'").all();
-  for (const o of paidOrders) {
-    const cr = await tryCreditOrder(o.id);
-    if (cr.ok) results.credited.push(o.id);
-  }
-
-  // 5. 登录态过期自动提醒（连续失败 → 手机推送）
-  await maybeNotifyFailures(platforms, results.errors);
-
-  return results;
 }
 
 export function startMonitor() {

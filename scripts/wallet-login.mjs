@@ -11,7 +11,7 @@ import path from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import db, { initSchema } from '../src/db/index.js';
-import { parseScrapeRule, STORAGE_DIR, STORAGE_KEY_BY_NAME } from '../src/services/scraper_wallets.mjs';
+import { parseScrapeRule, STORAGE_DIR, STORAGE_KEY_BY_NAME, BROWSER_ARGS } from '../src/services/scraper_wallets.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -92,7 +92,8 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
   console.log(`=== AI 钱包一次性登录${onlyKey ? `（仅 ${onlyKey}）` : ''} ===`);
   console.log(`本次登录 ${targets.length} 个平台${dbTargets.length ? '（读取数据库配置，新添加的平台也会包含）' : '（数据库无抓取平台，使用预设）'}。\n`);
 
-  const browser = await chromium.launch({ headless: false, channel: 'chrome' });
+  // 与抓取端使用同一组启动参数（禁用设备绑定会话），保证登录态可跨实例持久保存
+  const browser = await chromium.launch({ headless: false, channel: 'chrome', args: BROWSER_ARGS });
   let closedAll = false; // 用户把所有窗口都关了 → 终止整个流程
   browser.on('disconnected', () => { closedAll = true; });
   try {

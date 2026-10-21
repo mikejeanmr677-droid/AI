@@ -729,7 +729,7 @@
         box.style.background = '#fef2f2';
         box.style.border = '1px solid #fecaca';
         box.style.color = '#991b1b';
-        box.innerHTML = `本次巡检：成功 ${okCount} 个，失败 ${errs.length} 个（${errs.map(e => nameOf(e.platformId)).join('、')}）— 失败平台已标「抓取失败」，可点「刷新余额」重试；连续失败会自动手机提醒重新登录。`;
+        box.innerHTML = `本次巡检：成功 ${okCount} 个，失败 ${errs.length} 个（${errs.map(e => esc(nameOf(e.platformId))).join('、')}）— 失败平台已标「抓取失败」，可点「刷新余额」重试；连续失败会自动手机提醒重新登录。`;
         box.classList.remove('hidden');
       } else {
         box.style.background = '#f0fdf4';
