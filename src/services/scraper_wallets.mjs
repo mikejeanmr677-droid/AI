@@ -59,15 +59,28 @@ export function parseScrapeRule(raw) {
   return { keyword, regex, max };
 }
 
-// 从页面文本中提取余额：取关键字最后一次出现处之后的片段。
-// 注意：页面里"可用余额"等关键字常出现两次——一次在提示语（如"可用余额、今日消费…延迟10分钟"），
-// 一次在真实余额标签；提示语后跟的是无关数字，必须取最后一次出现才定位到真实金额。
+// 从页面文本中提取余额：找到关键字所有出现位置，优先选"后面跟着金额符号（¥/￥）"的那处。
+// 原因：页面里"可用余额"等关键字常出现多次——提示语（如"可用余额、今日消费…延迟10分钟"）、
+// 真实余额标签、"可用余额预警"栏目名等。只有真实标签处紧跟金额符号；提示语后跟无关数字、
+// 栏目名后跟账号等文本，取错了就会抓到 10 / 2251 这类错误值。
 export function extractBalance(text, { keyword, regex, max }) {
   let segment = text;
   if (keyword) {
-    const idx = text.lastIndexOf(keyword);
-    if (idx < 0) return null; // 关键字都没出现，视为页面结构不符
-    segment = text.slice(idx, idx + 160); // 关键字后面 160 字符通常是金额区域
+    const positions = [];
+    let idx = text.indexOf(keyword);
+    while (idx >= 0) {
+      positions.push(idx);
+      idx = text.indexOf(keyword, idx + keyword.length);
+    }
+    if (positions.length === 0) return null; // 关键字都没出现，视为页面结构不符
+    let chosen = positions[0]; // 无符号特征时退回第一次出现
+    for (const pos of positions) {
+      if (/[¥￥]/.test(text.slice(pos, pos + 40))) { // 关键字后 40 字符内有金额符号即视为真实标签
+        chosen = pos;
+        break;
+      }
+    }
+    segment = text.slice(chosen, chosen + 160); // 关键字后面 160 字符通常是金额区域
   }
   // 默认正则支持千分位逗号与负号（欠费）
   const numRe = regex ? new RegExp(regex, 'g') : /-?[0-9][0-9,]*(?:\.[0-9]+)?/g;
