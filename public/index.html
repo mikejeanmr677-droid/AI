@@ -64,13 +64,15 @@
     <!-- 平台面板 -->
     <section id="tab-platforms">
       <div class="card">
-        <h2>大模型平台</h2>
+        <div style="display:flex; justify-content:space-between; align-items:center;">
+          <h2 style="margin:0;">大模型平台</h2>
+          <button id="login-all-btn" onclick="openLoginAll()" style="display:none; background:#7c3aed; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:13px;">🔑 全部一键登录</button>
+        </div>
         <div id="alert-bar" class="alert-bar hidden"></div>
         <div id="monitor-result" class="hidden" style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:8px;padding:8px 14px;margin-top:12px;font-size:13px;color:#166534;"></div>
         <div style="display:flex; gap:8px; flex-wrap:wrap; align-items:center; margin-top:8px;" id="quick-add-bar">
           <span style="font-size:13px; color:#6b7280;">⚡ 快速添加：</span>
           <button class="primary" onclick="showAddForm()">+ 添加平台</button>
-          <button id="login-all-btn" onclick="openLoginAll()" style="display:none; background:#7c3aed; color:#fff; border:none; border-radius:6px; padding:6px 12px; cursor:pointer; font-size:13px;">🔑 全部一键登录</button>
         </div>
         <div id="quick-add-groups" style="margin-top:10px;">
           <div style="margin-bottom:10px;">

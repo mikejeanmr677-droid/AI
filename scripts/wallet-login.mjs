@@ -43,10 +43,14 @@ function targetsFromDb() {
 const isLoginUrl = (u) => /login|passport|signin|cas\/|auth\/login/i.test(u || '');
 
 // 等待页面满足：URL 不在登录页 + 页面文本包含余额关键字（连续两次确认）
+// 如果用户手动关闭了登录窗口，立即放弃当前平台（不再傻等超时）
 async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
   const start = Date.now();
   let stable = 0;
+  let closed = false;
+  page.on('close', () => { closed = true; });
   while (Date.now() - start < timeoutMs) {
+    if (closed) return false; // 窗口被用户关闭 → 放弃该平台
     try {
       const url = page.url();
       const text = await page.evaluate(() => (document.body ? document.body.innerText : ''));
@@ -57,7 +61,7 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
       } else {
         stable = 0;
       }
-    } catch (e) { /* 页面跳转中 */ }
+    } catch (e) { /* 页面跳转中或窗口已关闭 */ }
     await new Promise((r) => setTimeout(r, 2000));
   }
   return false;
@@ -89,27 +93,39 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
   console.log(`本次登录 ${targets.length} 个平台${dbTargets.length ? '（读取数据库配置，新添加的平台也会包含）' : '（数据库无抓取平台，使用预设）'}。\n`);
 
   const browser = await chromium.launch({ headless: false, channel: 'chrome' });
+  let closedAll = false; // 用户把所有窗口都关了 → 终止整个流程
+  browser.on('disconnected', () => { closedAll = true; });
   try {
     for (const p of targets) {
+      if (closedAll) {
+        console.log('检测到浏览器窗口已全部关闭，结束登录流程。');
+        break;
+      }
       const storageFile = path.join(STORAGE_DIR, `storage_${p.key}.json`);
       const rule = parseScrapeRule(p.rule);
       console.log(`[${p.name}] 打开 ${p.url}`);
-      console.log('  请在浏览器窗口里登录，登录成功后脚本会自动检测并继续。');
-      const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
-      const page = await context.newPage();
-      await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+      console.log('  请在浏览器窗口里登录（关闭窗口 = 放弃当前平台）。');
+      let context, page;
+      try {
+        context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
+        page = await context.newPage();
+        await page.goto(p.url, { waitUntil: 'domcontentloaded', timeout: 60000 }).catch(() => {});
+      } catch (e) {
+        console.log(`  ✗ 浏览器已不可用（窗口被关闭），结束登录流程。`);
+        break;
+      }
       const ok = await waitLoggedIn(page, rule.keyword);
       if (ok) {
         await context.storageState({ path: storageFile });
         console.log(`  ✓ ${p.name} 登录成功，登录态已保存到 ${storageFile}`);
       } else {
-        console.log(`  ✗ ${p.name} 未检测到登录成功（超时），跳过。`);
+        console.log(`  ✗ ${p.name} 未完成登录（窗口关闭或超时），跳过。`);
       }
       try { await page.close(); } catch {}
-      await context.close();
+      try { await context.close(); } catch {}
     }
   } finally {
-    await browser.close();
+    try { await browser.close(); } catch {}
   }
   console.log('\n登录流程结束。现在可运行 node scripts/wallet-check.mjs 验证，或启动服务定时巡检。');
 })();
