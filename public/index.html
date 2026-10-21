@@ -631,6 +631,23 @@
       } catch (e) { alert(e.message); }
     }
 
+    // 登录流程结束后：展示各平台成功/失败结果
+    async function showLoginResult() {
+      loadPlatforms();
+      try {
+        const r = await api('/api/login/result');
+        const log = (r && r.log || '').trim();
+        const lines = log.split('\n').filter(Boolean);
+        if (lines.length > 1) {
+          alert('登录流程已结束，结果如下：\n\n' + lines.slice(1).slice(-20).join('\n'));
+        } else {
+          alert('登录流程已结束');
+        }
+      } catch {
+        alert('登录流程已结束');
+      }
+    }
+
     // 一键登录：服务端拉起登录脚本弹出浏览器窗口
     async function openLogin(id) {
       const btn = document.querySelector(`#login-btn-${id}`);
@@ -646,7 +663,7 @@
               if (!s.running) {
                 clearInterval(timer);
                 btn.disabled = false; btn.textContent = '登录';
-                loadPlatforms();
+                showLoginResult();
               }
             } catch {}
           }, 3000);
@@ -671,7 +688,7 @@
               if (!s.running) {
                 clearInterval(timer);
                 btn.disabled = false; btn.textContent = '🔑 全部一键登录';
-                loadPlatforms();
+                showLoginResult();
               }
             } catch {}
           }, 3000);

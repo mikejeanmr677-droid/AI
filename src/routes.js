@@ -7,12 +7,14 @@ import {
 } from './services/recharge.js';
 import { runMonitorCycle } from './services/monitor.js';
 import { spawn } from 'node:child_process';
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { STORAGE_KEY_BY_NAME, storageFileFor } from './services/scraper_wallets.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = join(__dirname, '..');
+const LOGIN_LOG = join(PROJECT_ROOT, 'src', 'wallet-states', 'login-run.log');
 
 let loginRunning = false;
 
@@ -40,9 +42,13 @@ export async function registerRoutes(fastify) {
     if (platform) args.push(storageKeyFor(platform));
     loginRunning = true;
     try {
-      const child = spawn(process.execPath, args, { cwd: PROJECT_ROOT, detached: true, stdio: 'ignore' });
-      child.on('exit', () => { loginRunning = false; });
-      child.on('error', () => { loginRunning = false; });
+      // 脚本输出记录到日志文件，前端可查询登录结果
+      fs.mkdirSync(dirname(LOGIN_LOG), { recursive: true });
+      fs.writeFileSync(LOGIN_LOG, `[${new Date().toLocaleString()}] 开始登录：${platform ? platform.name : '全部浏览器抓取型平台'}\n`);
+      const out = fs.openSync(LOGIN_LOG, 'a');
+      const child = spawn(process.execPath, args, { cwd: PROJECT_ROOT, detached: true, stdio: ['ignore', out, out] });
+      child.on('exit', () => { loginRunning = false; try { fs.closeSync(out); } catch {} });
+      child.on('error', () => { loginRunning = false; try { fs.closeSync(out); } catch {} });
       child.unref();
       return {
         running: true,
@@ -53,6 +59,15 @@ export async function registerRoutes(fastify) {
     } catch (err) {
       loginRunning = false;
       return { running: false, message: '启动登录失败：' + err.message };
+    }
+  });
+
+  // 最近一次登录流程的完整输出（每个平台成功/失败一目了然）
+  fastify.get('/api/login/result', async () => {
+    try {
+      return { log: fs.readFileSync(LOGIN_LOG, 'utf8') || '' };
+    } catch {
+      return { log: '' };
     }
   });
 
