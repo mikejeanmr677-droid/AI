@@ -395,7 +395,7 @@ const providers = {
       url: platform.balance_api_url,
       rule,
       debugLabel: platform.name,
-      storageFile: storageFileFor(platform.name),
+      storageFile: storageFileFor(platform.name, platform.provider),
     });
     return { balance, raw: {}, unit: platform.currency || '元', scraped: true };
   },

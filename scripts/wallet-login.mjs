@@ -2,19 +2,21 @@
 // 弹出浏览器窗口，逐个平台等你登录；登录成功后自动把登录态(cookie+localStorage)
 // 导出到 src/wallet-states/storage_<key>.json，之后定时巡检无头加载该文件即可。
 // 用法：
-//   node scripts/wallet-login.mjs            # 登录全部 6 个平台
+//   node scripts/wallet-login.mjs            # 登录数据库里全部浏览器抓取型平台（空库则用预设）
 //   node scripts/wallet-login.mjs bailian    # 只登录指定平台（tencent/mimo/kimi/bailian/minimax/volc）
+//   node scripts/wallet-login.mjs --list     # 只列出需要登录的平台，不打开浏览器
 import { chromium } from 'playwright';
 import fs from 'node:fs';
 import path from 'node:path';
 import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { parseScrapeRule, STORAGE_DIR } from '../src/services/scraper_wallets.mjs';
+import db, { initSchema } from '../src/db/index.js';
+import { parseScrapeRule, STORAGE_DIR, STORAGE_KEY_BY_NAME } from '../src/services/scraper_wallets.mjs';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-// 平台定义（key → 名称/钱包页/提取规则，与 setup-wallet-platforms.mjs 保持一致）
-const PLATFORMS = [
+// 平台定义（key → 名称/钱包页/提取规则）——仅作为数据库为空时的兜底预设
+const PRESET_PLATFORMS = [
   { key: 'tencent',  name: '腾讯云TokenHub', url: 'https://console.cloud.tencent.com/expense',              rule: '{"keyword":"可用余额","max":10000000}' },
   { key: 'mimo',     name: '小米MiMo',       url: 'https://platform.xiaomimimo.com/console/balance',        rule: '{"keyword":"现金余额","max":10000000}' },
   { key: 'kimi',     name: '月之暗面Kimi',   url: 'https://platform.kimi.com/console/account',              rule: '{"keyword":"可用余额\n￥ ","max":10000000}' },
@@ -22,6 +24,21 @@ const PLATFORMS = [
   { key: 'minimax',  name: 'MiniMax',        url: 'https://platform.minimax.cn/console/recharge-records',   rule: '{"keyword":"可用额度","max":10000000}' },
   { key: 'volc',     name: '火山引擎',       url: 'https://console.volcengine.com/finance/account-overview', rule: '{"keyword":"可用余额","max":10000000}' },
 ];
+
+// 从数据库动态读取所有"浏览器抓取型"平台（新添加的 scrape 平台也会被覆盖到）
+function targetsFromDb() {
+  const rows = db.prepare(
+    "SELECT name, provider, balance_api_url, balance_json_path FROM platforms WHERE balance_type='scrape' AND active = 1"
+  ).all();
+  return rows
+    .filter((r) => r.balance_api_url)
+    .map((r) => ({
+      key: STORAGE_KEY_BY_NAME[r.name] || r.provider || r.name,
+      name: r.name,
+      url: r.balance_api_url,
+      rule: r.balance_json_path || '',
+    }));
+}
 
 const isLoginUrl = (u) => /login|passport|signin|cas\/|auth\/login/i.test(u || '');
 
@@ -47,15 +64,29 @@ async function waitLoggedIn(page, keyword, timeoutMs = 10 * 60 * 1000) {
 }
 
 (async () => {
-  const onlyKey = process.argv[2];
-  const targets = onlyKey ? PLATFORMS.filter((p) => p.key === onlyKey) : PLATFORMS;
+  await initSchema(); // 确保数据库已加载（sql.js 惰性初始化）
+
+  const args = process.argv.slice(2);
+  const onlyKey = args.find((a) => !a.startsWith('--')) || null;
+
+  // 需要登录的目标：数据库里的浏览器抓取型平台优先；空库时用预设兜底
+  const dbTargets = targetsFromDb();
+  const allTargets = dbTargets.length ? dbTargets : PRESET_PLATFORMS;
+  const targets = onlyKey ? allTargets.filter((p) => p.key === onlyKey) : allTargets;
   if (onlyKey && targets.length === 0) {
-    console.log(`未找到平台: ${onlyKey}。可用: ${PLATFORMS.map((p) => p.key).join(', ')}`);
+    console.log(`未找到平台: ${onlyKey}。可用: ${allTargets.map((p) => p.key).join(', ')}`);
     process.exit(1);
   }
+
+  if (args.includes('--list')) {
+    console.log(`需要登录的浏览器抓取型平台（${targets.length} 个）${dbTargets.length ? '（来自数据库配置）' : '（预设兜底）'}：`);
+    for (const p of targets) console.log(`  ${p.name}  (key=${p.key})\n    url=${p.url}`);
+    process.exit(0);
+  }
+
   fs.mkdirSync(STORAGE_DIR, { recursive: true });
   console.log(`=== AI 钱包一次性登录${onlyKey ? `（仅 ${onlyKey}）` : ''} ===`);
-  console.log('将弹出浏览器窗口，请在窗口里登录，每个平台最多等 10 分钟。\n');
+  console.log(`本次登录 ${targets.length} 个平台${dbTargets.length ? '（读取数据库配置，新添加的平台也会包含）' : '（数据库无抓取平台，使用预设）'}。\n`);
 
   const browser = await chromium.launch({ headless: false, channel: 'chrome' });
   try {

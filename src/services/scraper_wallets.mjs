@@ -111,7 +111,7 @@ export const STORAGE_DIR = path.join(__dirname, '..', 'wallet-states');
 
 // 平台名 → 登录态文件 key 的映射（与 wallet-login.mjs / setup-wallet-platforms.mjs 一致）
 // 兼容新简称（腾讯云/MIMO/Kimi/阿里云）与旧全称
-const STORAGE_KEY_BY_NAME = {
+export const STORAGE_KEY_BY_NAME = {
   '腾讯云TokenHub': 'tencent',
   '腾讯云': 'tencent',
   '小米MiMo': 'mimo',
@@ -125,8 +125,9 @@ const STORAGE_KEY_BY_NAME = {
 };
 
 // 按平台名找登录态文件；找不到返回 null
-export function storageFileFor(name) {
-  const key = STORAGE_KEY_BY_NAME[name];
+// fallbackKey：非预设平台（新添加的 scrape 平台）用 provider 字段兜底匹配
+export function storageFileFor(name, fallbackKey = null) {
+  const key = STORAGE_KEY_BY_NAME[name] || fallbackKey;
   if (!key) return null;
   const f = path.join(STORAGE_DIR, `storage_${key}.json`);
   return fs.existsSync(f) ? f : null;
